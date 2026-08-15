@@ -1,0 +1,111 @@
+import 'user_profile.dart';
+import 'chat_message.dart';
+
+class ChatConversation {
+  final String id;
+  final bool isGroup;
+  final String name;
+  final String? avatarUrl;
+  final String? createdBy;
+  final List<UserProfile> participants;
+  final ChatMessage? lastMessage;
+  final String? lastMessageText;
+  final MessageType? lastMessageType;
+  final DateTime lastMessageAt;
+  final int unreadCount;
+  final bool isTyping;
+  final String? typingUserName;
+  final String? draftMessage;
+
+  ChatConversation({
+    required this.id,
+    this.isGroup = false,
+    required this.name,
+    this.avatarUrl,
+    this.createdBy,
+    this.participants = const [],
+    this.lastMessage,
+    this.lastMessageText,
+    this.lastMessageType,
+    DateTime? lastMessageAt,
+    this.unreadCount = 0,
+    this.isTyping = false,
+    this.typingUserName,
+    this.draftMessage,
+  }) : lastMessageAt = lastMessageAt ?? DateTime.now();
+
+  factory ChatConversation.fromJson(
+    Map<String, dynamic> json, {
+    List<UserProfile> participants = const [],
+    ChatMessage? lastMessage,
+  }) {
+    return ChatConversation(
+      id: json['id'] as String,
+      isGroup: json['is_group'] as bool? ?? false,
+      name: json['group_name'] as String? ?? 'Chat',
+      avatarUrl: json['group_avatar'] as String?,
+      createdBy: json['created_by'] as String?,
+      participants: participants,
+      lastMessage: lastMessage,
+      lastMessageText: json['last_message_text'] as String?,
+      lastMessageType: json['last_message_type'] != null
+          ? MessageType.values.firstWhere(
+              (e) => e.name == json['last_message_type'],
+              orElse: () => MessageType.text,
+            )
+          : null,
+      lastMessageAt: json['last_message_at'] != null
+          ? DateTime.tryParse(json['last_message_at'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+      unreadCount: json['unread_count'] as int? ?? 0,
+      draftMessage: json['draft_message'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'is_group': isGroup,
+      'group_name': name,
+      'group_avatar': avatarUrl,
+      'created_by': createdBy,
+      'last_message_text': lastMessageText,
+      'last_message_type': lastMessageType?.name,
+      'last_message_at': lastMessageAt.toIso8601String(),
+    };
+  }
+
+  ChatConversation copyWith({
+    String? id,
+    bool? isGroup,
+    String? name,
+    String? avatarUrl,
+    String? createdBy,
+    List<UserProfile>? participants,
+    ChatMessage? lastMessage,
+    String? lastMessageText,
+    MessageType? lastMessageType,
+    DateTime? lastMessageAt,
+    int? unreadCount,
+    bool? isTyping,
+    String? typingUserName,
+    String? draftMessage,
+  }) {
+    return ChatConversation(
+      id: id ?? this.id,
+      isGroup: isGroup ?? this.isGroup,
+      name: name ?? this.name,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      createdBy: createdBy ?? this.createdBy,
+      participants: participants ?? this.participants,
+      lastMessage: lastMessage ?? this.lastMessage,
+      lastMessageText: lastMessageText ?? this.lastMessageText,
+      lastMessageType: lastMessageType ?? this.lastMessageType,
+      lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+      unreadCount: unreadCount ?? this.unreadCount,
+      isTyping: isTyping ?? this.isTyping,
+      typingUserName: typingUserName ?? this.typingUserName,
+      draftMessage: draftMessage ?? this.draftMessage,
+    );
+  }
+}
