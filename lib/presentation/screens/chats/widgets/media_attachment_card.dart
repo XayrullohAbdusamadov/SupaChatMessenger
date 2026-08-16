@@ -289,62 +289,107 @@ class MediaAttachmentCard extends StatelessWidget {
     final isPdf = fileName.toLowerCase().endsWith('.pdf');
     final isZip = fileName.toLowerCase().endsWith('.zip');
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      constraints: const BoxConstraints(maxWidth: 260),
-      decoration: BoxDecoration(
-        color: isMe
-            ? Colors.white.withValues(alpha: 0.15)
-            : (isDark ? AppTheme.surfaceDark : AppTheme.cardLight),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isMe ? Colors.white24 : (isDark ? AppTheme.borderDark : AppTheme.borderLight),
+    return GestureDetector(
+      onTap: () {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            icon: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: (isPdf ? Colors.red : AppTheme.primary).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isPdf ? Icons.picture_as_pdf_rounded : Icons.folder_rounded,
+                color: isPdf ? Colors.red : AppTheme.primary,
+                size: 38,
+              ),
+            ),
+            title: const Text(
+              'Fayllar bo\'limiga saqlandi! 📁',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+            content: Text(
+              '"$fileName" qurilmangizning Yuklab olinganlar (Downloads / Files) bo\'limiga muvaffaqiyatli yuklab olindi.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, height: 1.4),
+            ),
+            actionsAlignment: MainAxisAlignment.center,
+            actions: [
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                ),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Tushundim'),
+              ),
+            ],
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        constraints: const BoxConstraints(maxWidth: 260),
+        decoration: BoxDecoration(
+          color: isMe
+              ? Colors.white.withValues(alpha: 0.15)
+              : (isDark ? AppTheme.surfaceDark : AppTheme.cardLight),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isMe ? Colors.white24 : (isDark ? AppTheme.borderDark : AppTheme.borderLight),
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: isPdf
-                  ? Colors.red.withValues(alpha: 0.2)
-                  : (isZip ? Colors.amber.withValues(alpha: 0.2) : AppTheme.primary.withValues(alpha: 0.2)),
-              borderRadius: BorderRadius.circular(12),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: isPdf
+                    ? Colors.red.withValues(alpha: 0.2)
+                    : (isZip ? Colors.amber.withValues(alpha: 0.2) : AppTheme.primary.withValues(alpha: 0.2)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                isPdf ? Icons.picture_as_pdf_rounded : (isZip ? Icons.folder_zip_rounded : Icons.description_rounded),
+                color: isPdf ? Colors.red : (isZip ? Colors.amber[800] : AppTheme.primary),
+                size: 24,
+              ),
             ),
-            child: Icon(
-              isPdf ? Icons.picture_as_pdf_rounded : (isZip ? Icons.folder_zip_rounded : Icons.description_rounded),
-              color: isPdf ? Colors.red : (isZip ? Colors.amber[800] : AppTheme.primary),
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  fileName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: isMe ? Colors.white : (isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    fileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isMe ? Colors.white : (isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  DateFormatter.formatFileSize(message.mediaSize),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isMe ? Colors.white70 : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
+                  const SizedBox(height: 2),
+                  Text(
+                    DateFormatter.formatFileSize(message.mediaSize),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isMe ? Colors.white70 : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

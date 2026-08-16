@@ -337,7 +337,18 @@ class ChatProvider extends ChangeNotifier {
 
   // DELETE CHAT CONVERSATION COMPLETELY WITH CLEANUP
   void deleteChatCompletely(String chatId) {
-    _conversations.removeWhere((c) => c.id == chatId);
+    final convIdx = _conversations.indexWhere((c) => c.id == chatId);
+    if (convIdx != -1) {
+      final conv = _conversations[convIdx];
+      final participantIds = conv.participants.map((p) => p.id).toSet();
+      // Remove all stories associated with this contact/chat
+      _stories.removeWhere((s) => participantIds.contains(s.userId));
+      // Remove from contacts if direct chat
+      if (!conv.isGroup) {
+        _contacts.removeWhere((c) => participantIds.contains(c.id));
+      }
+      _conversations.removeAt(convIdx);
+    }
     if (_activeChat?.id == chatId) {
       closeChat();
     }

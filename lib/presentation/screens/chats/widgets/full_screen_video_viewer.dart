@@ -31,11 +31,41 @@ class _FullScreenVideoViewerState extends State<FullScreenVideoViewer> {
   }
 
   void _downloadVideo(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Video muvaffaqiyatli yuklab olindi va galereyaga saqlandi! 📥"),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 2),
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        icon: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF10B981).withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 40),
+        ),
+        title: const Text(
+          'Galereyaga saqlandi! ✅',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
+        content: const Text(
+          'Ushbu video qurilmangizning Galereya (Photos/Gallery/Videos) bo\'limiga muvaffaqiyatli yuklab olindi.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, height: 1.4),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Tushundim'),
+          ),
+        ],
       ),
     );
   }
@@ -51,19 +81,6 @@ class _FullScreenVideoViewerState extends State<FullScreenVideoViewer> {
           widget.title ?? 'Video',
           style: const TextStyle(color: Colors.white, fontSize: 16),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.copy_rounded, color: Colors.white),
-            tooltip: "Nusxa olish",
-            onPressed: () => _copyVideoLink(context),
-          ),
-          IconButton(
-            icon: const Icon(Icons.download_rounded, color: Colors.white),
-            tooltip: "Yuklab olish",
-            onPressed: () => _downloadVideo(context),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: Stack(
         alignment: Alignment.center,
@@ -187,7 +204,7 @@ class _FullScreenVideoViewerState extends State<FullScreenVideoViewer> {
                         backgroundColor: AppTheme.primary,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                       ),
                       icon: const Icon(Icons.copy_rounded, size: 18),
                       label: const Text("Nusxa olish"),
@@ -198,7 +215,7 @@ class _FullScreenVideoViewerState extends State<FullScreenVideoViewer> {
                         backgroundColor: Colors.white24,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                       ),
                       icon: const Icon(Icons.download_rounded, size: 18),
                       label: const Text("Yuklab olish"),
