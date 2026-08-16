@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/avatar_helper.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/theme_provider.dart';
 import 'supabase_config_dialog.dart';
@@ -47,14 +47,11 @@ class ProfileSettingsScreen extends StatelessWidget {
                         ),
                       ),
                       child: ClipOval(
-                        child: user.avatarUrl != null
-                            ? CachedNetworkImage(
-                                imageUrl: user.avatarUrl!,
-                                fit: BoxFit.cover,
-                                placeholder: (c, url) => Container(color: AppTheme.primaryLight.withValues(alpha: 0.2)),
-                                errorWidget: (c, url, err) => const Icon(Icons.person, size: 48, color: AppTheme.primary),
-                              )
-                            : const Icon(Icons.person, size: 48, color: AppTheme.primary),
+                        child: AvatarHelper.buildAvatarWidget(
+                          avatarUrl: user.avatarUrl,
+                          name: user.fullName,
+                          radius: 48,
+                        ),
                       ),
                     ),
                     Positioned(
@@ -242,6 +239,36 @@ class ProfileSettingsScreen extends StatelessWidget {
             },
           ),
 
+          // LOG OUT TILE
+          Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            color: isDark ? AppTheme.cardDark : AppTheme.surfaceLight,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: AppTheme.error.withValues(alpha: 0.3),
+                width: 0.8,
+              ),
+            ),
+            child: ListTile(
+              leading: const Icon(Icons.logout_rounded, color: AppTheme.error),
+              title: const Text(
+                'Hisobdan chiqish',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: AppTheme.error),
+              ),
+              subtitle: Text(
+                'Ilovadan butunlay chiqish',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded, color: AppTheme.error),
+              onTap: () => _confirmLogOut(context),
+            ),
+          ),
+
           const SizedBox(height: 20),
 
           // ELEGANT CREATOR ATTRIBUTION CARD
@@ -416,6 +443,8 @@ class ProfileSettingsScreen extends StatelessWidget {
     final bioCtrl = TextEditingController(text: auth.currentUser.about);
     Uint8List? newImageBytes;
 
+    bool isImageDeleted = false;
+
     showDialog(
       context: context,
       builder: (ctx) {
@@ -423,6 +452,9 @@ class ProfileSettingsScreen extends StatelessWidget {
 
         return StatefulBuilder(
           builder: (dialogCtx, setDialogState) {
+            final currentAvatarUrl = isImageDeleted ? null : auth.currentUser.avatarUrl;
+            final hasAvatar = newImageBytes != null || currentAvatarUrl != null;
+
             return Dialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
               child: Padding(
@@ -440,52 +472,72 @@ class ProfileSettingsScreen extends StatelessWidget {
 
                       // AVATAR PICKER
                       Center(
-                        child: Stack(
+                        child: Column(
                           children: [
-                            CircleAvatar(
-                              radius: 46,
-                              backgroundColor: AppTheme.primaryLight.withValues(alpha: 0.2),
-                              backgroundImage: newImageBytes != null
-                                  ? MemoryImage(newImageBytes!)
-                                  : (auth.currentUser.avatarUrl != null
-                                      ? CachedNetworkImageProvider(auth.currentUser.avatarUrl!) as ImageProvider
-                                      : null),
-                              child: (newImageBytes == null && auth.currentUser.avatarUrl == null)
-                                  ? const Icon(Icons.person, size: 48, color: AppTheme.primary)
-                                  : null,
-                            ),
-                            Positioned(
-                              right: 0,
-                              bottom: 0,
-                              child: GestureDetector(
-                                onTap: () async {
-                                  final picker = ImagePicker();
-                                  final picked = await picker.pickImage(source: ImageSource.gallery);
-                                  if (picked != null) {
-                                    final bytes = await picked.readAsBytes();
-                                    setDialogState(() {
-                                      newImageBytes = bytes;
-                                    });
-                                  }
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: const BoxDecoration(
-                                    color: AppTheme.primary,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.camera_alt_rounded,
-                                    size: 16,
-                                    color: Colors.white,
+                            Stack(
+                              children: [
+                                CircleAvatar(
+                                  radius: 46,
+                                  backgroundColor: AppTheme.primaryLight.withValues(alpha: 0.2),
+                                  backgroundImage: newImageBytes != null
+                                      ? MemoryImage(newImageBytes!)
+                                      : AvatarHelper.getImageProvider(currentAvatarUrl),
+                                  child: !hasAvatar
+                                      ? const Icon(Icons.person, size: 48, color: AppTheme.primary)
+                                      : null,
+                                ),
+                                Positioned(
+                                  right: 0,
+                                  bottom: 0,
+                                  child: GestureDetector(
+                                    onTap: () async {
+                                      final picker = ImagePicker();
+                                      final picked = await picker.pickImage(source: ImageSource.gallery);
+                                      if (picked != null) {
+                                        final bytes = await picked.readAsBytes();
+                                        setDialogState(() {
+                                          newImageBytes = bytes;
+                                          isImageDeleted = false;
+                                        });
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: const BoxDecoration(
+                                        color: AppTheme.primary,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.camera_alt_rounded,
+                                        size: 16,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
+                            if (hasAvatar) ...[
+                              const SizedBox(height: 8),
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppTheme.error,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                ),
+                                icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                                label: const Text("Rasmni o'chirish", style: TextStyle(fontSize: 13)),
+                                onPressed: () {
+                                  setDialogState(() {
+                                    newImageBytes = null;
+                                    isImageDeleted = true;
+                                  });
+                                },
+                              ),
+                            ],
                           ],
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
                       // FULL NAME INPUT
                       const Text(
@@ -577,6 +629,7 @@ class ProfileSettingsScreen extends StatelessWidget {
                                 username: userCtrl.text.trim(),
                                 about: bioCtrl.text.trim(),
                                 newAvatarBytes: newImageBytes,
+                                deleteExistingAvatar: isImageDeleted,
                               );
                               nav.pop();
                             },
@@ -623,4 +676,62 @@ class ProfileSettingsScreen extends StatelessWidget {
       ),
     );
   }
+
+  void _confirmLogOut(BuildContext context) {
+    final auth = context.read<AuthProvider>();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        icon: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppTheme.error.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.logout_rounded, color: AppTheme.error, size: 36),
+        ),
+        title: const Text('Ilovadan chiqish', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text(
+          'Haqiqatan ham hisobingizdan butunlay chiqmoqchimisiz? Qayta kirish uchun ma\'lumotlaringizni kiritishingiz kerak bo\'ladi.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, height: 1.4),
+        ),
+        actionsAlignment: MainAxisAlignment.spaceEvenly,
+        actions: [
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Bekor qilish'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.error,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await auth.disconnectSupabase();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Hisobdan muvaffaqiyatli chiqildi'),
+                    backgroundColor: Colors.grey,
+                  ),
+                );
+              }
+            },
+            child: const Text('Chiqish'),
+          ),
+        ],
+      ),
+    );
+  }
 }
+

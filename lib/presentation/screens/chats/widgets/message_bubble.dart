@@ -9,6 +9,8 @@ import 'media_attachment_card.dart';
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isMe;
+  final bool isGroupOwner;
+  final bool isGroupAdmin;
   final bool isVoicePlaying;
   final double voiceProgress;
   final VoidCallback onVoicePlayToggle;
@@ -20,6 +22,8 @@ class MessageBubble extends StatelessWidget {
     super.key,
     required this.message,
     required this.isMe,
+    this.isGroupOwner = false,
+    this.isGroupAdmin = false,
     required this.isVoicePlaying,
     required this.voiceProgress,
     required this.onVoicePlayToggle,
@@ -85,7 +89,7 @@ class MessageBubble extends StatelessWidget {
                       createdAt: message.createdAt,
                       onPlayToggle: onVoicePlayToggle,
                     )
-                  else if (message.messageType == MessageType.image || message.messageType == MessageType.doc)
+                  else if (message.messageType == MessageType.image || message.messageType == MessageType.video || message.messageType == MessageType.doc)
                     MediaAttachmentCard(
                       message: message,
                       isMe: isMe,
@@ -244,10 +248,15 @@ class MessageBubble extends StatelessWidget {
                     onEdit(message);
                   },
                 ),
-              if (isMe)
+              if (isMe || isGroupOwner || isGroupAdmin)
                 ListTile(
                   leading: const Icon(Icons.delete_outline_rounded, color: AppTheme.error),
-                  title: const Text("O'chirish (Delete)", style: TextStyle(color: AppTheme.error)),
+                  title: Text(
+                    isMe
+                        ? "O'chirish (Delete)"
+                        : (isGroupOwner ? "Egasi sifatida o'chirish" : "Admin sifatida o'chirish"),
+                    style: const TextStyle(color: AppTheme.error),
+                  ),
                   onTap: () {
                     Navigator.pop(ctx);
                     onDelete(message);

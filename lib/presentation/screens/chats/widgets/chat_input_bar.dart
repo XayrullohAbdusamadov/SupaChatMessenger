@@ -4,10 +4,13 @@ import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../data/models/chat_message.dart';
+import 'sticker_picker_sheet.dart';
 
 class ChatInputBar extends StatefulWidget {
   final ChatMessage? replyingTo;
   final ChatMessage? editingMessage;
+  final bool isBlocked;
+  final VoidCallback? onUnblock;
   final VoidCallback onCancelReplyOrEdit;
   final Function(String text) onSendText;
   final Function(String path, Uint8List? bytes, String name, int size, MessageType type) onSendMedia;
@@ -17,6 +20,8 @@ class ChatInputBar extends StatefulWidget {
     super.key,
     this.replyingTo,
     this.editingMessage,
+    this.isBlocked = false,
+    this.onUnblock,
     required this.onCancelReplyOrEdit,
     required this.onSendText,
     required this.onSendMedia,
@@ -77,6 +82,23 @@ class _ChatInputBarState extends State<ChatInputBar> {
     _textController.clear();
   }
 
+  void _showStickerSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => StickerPickerSheet(
+        onStickerSelected: (sticker) {
+          Navigator.pop(ctx);
+          widget.onSendText(sticker);
+        },
+        onEmojiSelected: (emoji) {
+          _textController.text = '${_textController.text}$emoji';
+        },
+      ),
+    );
+  }
+
   void _showAttachmentSheet() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -106,7 +128,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Fayl biriktirish',
+                  'Fayl yoki media biriktirish',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -120,16 +142,25 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     _buildAttachmentOption(
                       icon: Icons.image_rounded,
                       color: const Color(0xFF3B82F6),
-                      label: 'Galereya',
+                      label: 'Rasm',
                       onTap: () async {
                         Navigator.pop(ctx);
                         _pickImage();
                       },
                     ),
                     _buildAttachmentOption(
+                      icon: Icons.videocam_rounded,
+                      color: const Color(0xFF8B5CF6),
+                      label: 'Video',
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        _pickVideo();
+                      },
+                    ),
+                    _buildAttachmentOption(
                       icon: Icons.picture_as_pdf_rounded,
                       color: const Color(0xFFEF4444),
-                      label: 'Hujjat (PDF)',
+                      label: 'Hujjat',
                       onTap: () async {
                         Navigator.pop(ctx);
                         _pickDocument();
@@ -138,19 +169,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     _buildAttachmentOption(
                       icon: Icons.mic_rounded,
                       color: const Color(0xFF10B981),
-                      label: 'Ovoz (Voice)',
+                      label: 'Ovoz',
                       onTap: () {
                         Navigator.pop(ctx);
                         _simulateVoiceRecording();
-                      },
-                    ),
-                    _buildAttachmentOption(
-                      icon: Icons.folder_zip_rounded,
-                      color: const Color(0xFFF59E0B),
-                      label: 'Arxiv (ZIP)',
-                      onTap: () async {
-                        Navigator.pop(ctx);
-                        _pickDocument();
                       },
                     ),
                   ],
@@ -214,6 +236,25 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
   }
 
+  Future<void> _pickVideo() async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickVideo(source: ImageSource.gallery);
+      if (picked != null) {
+        final bytes = await picked.readAsBytes();
+        widget.onSendMedia(
+          picked.path,
+          bytes,
+          picked.name,
+          bytes.length,
+          MessageType.video,
+        );
+      }
+    } catch (e) {
+      debugPrint('Error picking video: $e');
+    }
+  }
+
   Future<void> _pickDocument() async {
     try {
       final files = await FilePickerPlatform.instance.pickFiles(
@@ -255,7 +296,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
   }
 
   void _finishVoiceRecording() {
-    final duration = _recordingSeconds > 0 ? _recordingSeconds : 14;
+    final duration = _recordingSeconds > 0 ? _recordingSeconds : 10;
     setState(() {
       _isRecordingVoice = false;
       _recordingSeconds = 0;
@@ -273,6 +314,38 @@ class _ChatInputBarState extends State<ChatInputBar> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // IF BLOCKED: SHOW UNBLOCK BANNER
+    if (widget.isBlocked) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        child: SafeArea(
+          child: Row(
+            children: [
+              const Icon(Icons.block_rounded, color: AppTheme.error, size: 22),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Foydalanuvchi bloklangan',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.error),
+                ),
+              ),
+              if (widget.onUnblock != null)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.primary,
+                    backgroundColor: AppTheme.primary.withValues(alpha: 0.1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: widget.onUnblock,
+                  child: const Text('Blokdan chiqarish'),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -425,11 +498,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
                           enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
                           suffixIcon: IconButton(
-                            icon: const Icon(Icons.sentiment_satisfied_alt_rounded, size: 20),
+                            icon: const Icon(Icons.sentiment_satisfied_alt_rounded, size: 22),
                             color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
-                            onPressed: () {
-                              _textController.text = '${_textController.text} 😊';
-                            },
+                            onPressed: _showStickerSheet,
                           ),
                         ),
                         onSubmitted: (_) => _handleSend(),

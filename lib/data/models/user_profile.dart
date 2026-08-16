@@ -5,6 +5,7 @@ class UserProfile {
   final String? avatarUrl;
   final String about;
   final String? role; // e.g. "Software Engineer", "UI/UX Designer", "Project Manager"
+  final String phoneNumber;
   final bool isOnline;
   final DateTime lastSeen;
   final String? fcmToken;
@@ -17,11 +18,13 @@ class UserProfile {
     this.avatarUrl,
     this.about = 'Hey there! I am using SupaChat.',
     this.role,
+    String? phoneNumber,
     this.isOnline = false,
     DateTime? lastSeen,
     this.fcmToken,
     DateTime? createdAt,
-  })  : lastSeen = lastSeen ?? DateTime.now(),
+  })  : phoneNumber = phoneNumber ?? '+998 90 ${(id.hashCode.abs() % 9000000 + 1000000)}',
+        lastSeen = lastSeen ?? DateTime.now(),
         createdAt = createdAt ?? DateTime.now();
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -32,6 +35,7 @@ class UserProfile {
       avatarUrl: json['avatar_url'] as String?,
       about: json['about'] as String? ?? 'Hey there! I am using SupaChat.',
       role: json['role'] as String?,
+      phoneNumber: json['phone_number'] as String?,
       isOnline: json['is_online'] as bool? ?? false,
       lastSeen: json['last_seen'] != null
           ? DateTime.tryParse(json['last_seen'].toString()) ?? DateTime.now()
@@ -50,6 +54,8 @@ class UserProfile {
       'full_name': fullName,
       'avatar_url': avatarUrl,
       'about': about,
+      'role': role,
+      'phone_number': phoneNumber,
       'is_online': isOnline,
       'last_seen': lastSeen.toIso8601String(),
       'fcm_token': fcmToken,
@@ -64,6 +70,7 @@ class UserProfile {
     String? avatarUrl,
     String? about,
     String? role,
+    String? phoneNumber,
     bool? isOnline,
     DateTime? lastSeen,
     String? fcmToken,
@@ -75,6 +82,7 @@ class UserProfile {
       avatarUrl: avatarUrl ?? this.avatarUrl,
       about: about ?? this.about,
       role: role ?? this.role,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
       isOnline: isOnline ?? this.isOnline,
       lastSeen: lastSeen ?? this.lastSeen,
       fcmToken: fcmToken ?? this.fcmToken,

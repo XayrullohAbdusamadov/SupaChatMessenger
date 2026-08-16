@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,6 +35,21 @@ class AuthProvider extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     _biometricEnabled = prefs.getBool('biometric_enabled') ?? true;
+
+    // Load saved local profile if any
+    final savedAvatar = prefs.getString('local_avatar_url');
+    final savedName = prefs.getString('local_full_name');
+    final savedUsername = prefs.getString('local_username');
+    final savedAbout = prefs.getString('local_about');
+
+    if (savedName != null || savedAvatar != null) {
+      _currentUser = _currentUser.copyWith(
+        fullName: savedName ?? _currentUser.fullName,
+        username: savedUsername ?? _currentUser.username,
+        about: savedAbout ?? _currentUser.about,
+        avatarUrl: savedAvatar,
+      );
+    }
 
     if (connected && _supabaseService.isAuthenticated) {
       final user = _supabaseService.currentAuthUser;
@@ -120,31 +136,54 @@ class AuthProvider extends ChangeNotifier {
     required String about,
     String? avatarUrl,
     Uint8List? newAvatarBytes,
+    bool deleteExistingAvatar = false,
   }) async {
     _isLoading = true;
     notifyListeners();
 
-    String finalAvatar = avatarUrl ?? _currentUser.avatarUrl ?? '';
+    String? finalAvatar = deleteExistingAvatar ? null : (avatarUrl ?? _currentUser.avatarUrl);
 
-    if (newAvatarBytes != null && _isSupabaseConnected) {
-      final fileName = 'avatar_${_currentUser.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final uploadedUrl = await _supabaseService.uploadFile(
-        bucketName: 'avatars',
-        filePath: fileName,
-        fileBytes: newAvatarBytes,
-        contentType: 'image/jpeg',
-      );
-      if (uploadedUrl != null) {
-        finalAvatar = uploadedUrl;
+    if (newAvatarBytes != null && !deleteExistingAvatar) {
+      if (_isSupabaseConnected) {
+        final fileName = 'avatar_${_currentUser.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final uploadedUrl = await _supabaseService.uploadFile(
+          bucketName: 'avatars',
+          filePath: fileName,
+          fileBytes: newAvatarBytes,
+          contentType: 'image/jpeg',
+        );
+        if (uploadedUrl != null) {
+          finalAvatar = uploadedUrl;
+        } else {
+          finalAvatar = 'data:image/jpeg;base64,${base64Encode(newAvatarBytes)}';
+        }
+      } else {
+        // Local base64 data URI for demo / offline mode
+        finalAvatar = 'data:image/jpeg;base64,${base64Encode(newAvatarBytes)}';
       }
     }
 
-    _currentUser = _currentUser.copyWith(
-      fullName: fullName,
+    _currentUser = UserProfile(
+      id: _currentUser.id,
       username: username,
+      fullName: fullName,
+      avatarUrl: finalAvatar,
       about: about,
-      avatarUrl: finalAvatar.isNotEmpty ? finalAvatar : null,
+      role: _currentUser.role,
+      isOnline: _currentUser.isOnline,
+      lastSeen: _currentUser.lastSeen,
     );
+
+    // Save to SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('local_full_name', fullName);
+    await prefs.setString('local_username', username);
+    await prefs.setString('local_about', about);
+    if (finalAvatar != null) {
+      await prefs.setString('local_avatar_url', finalAvatar);
+    } else {
+      await prefs.remove('local_avatar_url');
+    }
 
     if (_isSupabaseConnected) {
       await _supabaseService.updateProfile(_currentUser);
@@ -155,6 +194,15 @@ class AuthProvider extends ChangeNotifier {
     return true;
   }
 
+  Future<void> deleteAvatar() async {
+    await updateProfile(
+      fullName: _currentUser.fullName,
+      username: _currentUser.username,
+      about: _currentUser.about,
+      deleteExistingAvatar: true,
+    );
+  }
+
   Future<void> toggleBiometric(bool value) async {
     _biometricEnabled = value;
     notifyListeners();
@@ -162,3 +210,4 @@ class AuthProvider extends ChangeNotifier {
     await prefs.setBool('biometric_enabled', value);
   }
 }
+

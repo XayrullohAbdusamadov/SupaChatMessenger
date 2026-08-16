@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/avatar_helper.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../data/models/chat_conversation.dart';
 
@@ -37,14 +37,11 @@ class ChatListItem extends StatelessWidget {
                         : AppTheme.primary.withValues(alpha: 0.1),
                   ),
                   child: ClipOval(
-                    child: conversation.avatarUrl != null
-                        ? CachedNetworkImage(
-                            imageUrl: conversation.avatarUrl!,
-                            fit: BoxFit.cover,
-                            placeholder: (c, url) => Container(color: AppTheme.primaryLight.withValues(alpha: 0.1)),
-                            errorWidget: (c, url, err) => _buildPlaceholderIcon(),
-                          )
-                        : _buildPlaceholderIcon(),
+                    child: AvatarHelper.buildAvatarWidget(
+                      avatarUrl: conversation.avatarUrl,
+                      name: conversation.name,
+                      radius: 26,
+                    ),
                   ),
                 ),
                 if (!conversation.isGroup &&
@@ -136,30 +133,6 @@ class ChatListItem extends StatelessWidget {
     );
   }
 
-  Widget _buildPlaceholderIcon() {
-    if (conversation.isGroup) {
-      return Center(
-        child: Text(
-          conversation.name.isNotEmpty ? conversation.name.substring(0, 1).toUpperCase() : 'G',
-          style: const TextStyle(
-            color: AppTheme.secondary,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      );
-    }
-    return Center(
-      child: Text(
-        conversation.name.isNotEmpty ? conversation.name.substring(0, 1).toUpperCase() : 'U',
-        style: const TextStyle(
-          color: AppTheme.primary,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
 
   Widget _buildSubtitle(bool isDark) {
     if (conversation.isTyping) {

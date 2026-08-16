@@ -1,11 +1,15 @@
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../core/services/supabase_service.dart';
 import '../core/utils/mock_data.dart';
+import '../core/utils/smart_reply_helper.dart';
 import '../data/models/chat_conversation.dart';
 import '../data/models/chat_message.dart';
 import '../data/models/user_profile.dart';
+import '../data/models/user_story.dart';
 
 class ChatProvider extends ChangeNotifier {
   final SupabaseService _supabaseService = SupabaseService.instance;
@@ -14,6 +18,9 @@ class ChatProvider extends ChangeNotifier {
   List<ChatConversation> _conversations = [];
   List<UserProfile> _contacts = [];
   List<ChatMessage> _currentMessages = [];
+  List<UserStory> _stories = [];
+  final Set<String> _blockedUserIds = {};
+  final Set<String> _viewedStoryIds = {};
   ChatConversation? _activeChat;
   ChatMessage? _replyingToMessage;
   ChatMessage? _editingMessage;
@@ -21,7 +28,8 @@ class ChatProvider extends ChangeNotifier {
   final bool _isLoading = false;
   RealtimeChannel? _realtimeSubscription;
 
-  // Audio voice note simulation state
+  // Audio voice note player
+  AudioPlayer? _audioPlayer;
   String? _currentlyPlayingVoiceMsgId;
   bool _isVoicePlaying = false;
   double _voiceProgress = 0.0;
@@ -44,6 +52,9 @@ class ChatProvider extends ChangeNotifier {
   }
 
   List<ChatMessage> get currentMessages => _currentMessages;
+  List<UserStory> get stories => _stories;
+  Set<String> get blockedUserIds => _blockedUserIds;
+  Set<String> get viewedStoryIds => _viewedStoryIds;
   ChatConversation? get activeChat => _activeChat;
   ChatMessage? get replyingToMessage => _replyingToMessage;
   ChatMessage? get editingMessage => _editingMessage;
@@ -55,12 +66,163 @@ class ChatProvider extends ChangeNotifier {
 
   ChatProvider() {
     _loadInitialData();
+    _initAudioPlayer();
   }
 
-  void _loadInitialData() {
+  Future<void> _loadInitialData() async {
     _conversations = MockData.getInitialChats();
     _contacts = MockData.contacts;
+    _initStories();
+
+    // Load blocked user ids from preferences
+    final prefs = await SharedPreferences.getInstance();
+    final savedBlocked = prefs.getStringList('blocked_user_ids') ?? [];
+    _blockedUserIds.addAll(savedBlocked);
+
+    final savedViewed = prefs.getStringList('viewed_story_ids') ?? [];
+    _viewedStoryIds.addAll(savedViewed);
+
     notifyListeners();
+  }
+
+  void _initStories() {
+    _stories = [
+      UserStory(
+        id: 'story-1',
+        userId: 'user-lola',
+        userName: 'Lola Ahmedova',
+        userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&auto=format&fit=crop&q=80',
+        mediaUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&auto=format&fit=crop&q=80',
+        caption: 'Bugungi quyoshli kun! ✨☀️',
+        createdAt: DateTime.now().subtract(const Duration(hours: 1)),
+      ),
+      UserStory(
+        id: 'story-2',
+        userId: 'user-jasur',
+        userName: 'Jasur Saidov',
+        userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
+        mediaUrl: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=800&auto=format&fit=crop&q=80',
+        caption: 'Tog\'lardagi ajoyib dam olish 🏔️',
+        createdAt: DateTime.now().subtract(const Duration(hours: 3)),
+      ),
+      UserStory(
+        id: 'story-3',
+        userId: 'user-malika',
+        userName: 'Malika Karimova',
+        userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
+        mediaUrl: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=800&auto=format&fit=crop&q=80',
+        caption: 'Yangi loyiha start oldi! 🚀💻',
+        createdAt: DateTime.now().subtract(const Duration(hours: 6)),
+      ),
+      UserStory(
+        id: 'story-4',
+        userId: 'user-anvar',
+        userName: 'Anvar Temirov',
+        userAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&auto=format&fit=crop&q=80',
+        mediaUrl: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&auto=format&fit=crop&q=80',
+        caption: 'Sayohat taassurotlari ✈️🌍',
+        createdAt: DateTime.now().subtract(const Duration(hours: 10)),
+      ),
+    ];
+  }
+
+  // BLOCKING SYSTEM
+  bool isUserBlocked(String userId) => _blockedUserIds.contains(userId);
+
+  Future<void> toggleBlockUser(String userId) async {
+    if (_blockedUserIds.contains(userId)) {
+      _blockedUserIds.remove(userId);
+    } else {
+      _blockedUserIds.add(userId);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('blocked_user_ids', _blockedUserIds.toList());
+    notifyListeners();
+  }
+
+  // STORIES SYSTEM
+  void addStory(UserStory story) {
+    _stories.insert(0, story);
+    notifyListeners();
+  }
+
+  void deleteStory(String storyId) {
+    _stories.removeWhere((s) => s.id == storyId);
+    notifyListeners();
+  }
+
+  List<UserStory> getStoriesForUser(String userId) {
+    return _stories.where((s) => s.userId == userId).toList();
+  }
+
+  bool isStoryViewed(String storyId) => _viewedStoryIds.contains(storyId);
+
+  Future<void> markStoryAsViewed(String storyId) async {
+    if (!_viewedStoryIds.contains(storyId)) {
+      _viewedStoryIds.add(storyId);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('viewed_story_ids', _viewedStoryIds.toList());
+      notifyListeners();
+    }
+  }
+
+  // REPLY TO STORY INTO DIRECT CHAT
+  Future<void> replyToStory({
+    required UserStory story,
+    required String replyText,
+    required String currentUserId,
+  }) async {
+    // Find contact for story
+    final contact = _contacts.firstWhere(
+      (c) => c.id == story.userId,
+      orElse: () => UserProfile(
+        id: story.userId,
+        username: story.userName.toLowerCase().replaceAll(' ', '_'),
+        fullName: story.userName,
+        avatarUrl: story.userAvatar,
+      ),
+    );
+
+    final chat = startDirectChat(contact);
+    openChat(chat, currentUserId);
+
+    await sendMessage(
+      senderId: currentUserId,
+      content: '📸 Storyga javob: $replyText',
+      type: MessageType.text,
+    );
+  }
+
+  // AUDIO PLAYER
+  void _initAudioPlayer() {
+    _audioPlayer = AudioPlayer();
+
+    _audioPlayer!.onPositionChanged.listen((pos) {
+      if (_currentlyPlayingVoiceMsgId != null) {
+        final msg = _currentMessages.firstWhere(
+          (m) => m.id == _currentlyPlayingVoiceMsgId,
+          orElse: () => _currentMessages.first,
+        );
+        final durSeconds = msg.voiceDuration ?? 10;
+        if (durSeconds > 0) {
+          _voiceProgress = (pos.inMilliseconds / (durSeconds * 1000)).clamp(0.0, 1.0);
+          notifyListeners();
+        }
+      }
+    });
+
+    _audioPlayer!.onPlayerComplete.listen((_) {
+      _isVoicePlaying = false;
+      _voiceProgress = 0.0;
+      _currentlyPlayingVoiceMsgId = null;
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer?.dispose();
+    super.dispose();
   }
 
   void setSearchQuery(String query) {
@@ -92,7 +254,6 @@ class ChatProvider extends ChangeNotifier {
     _replyingToMessage = null;
     _editingMessage = null;
 
-    // Reset unread count for this conversation
     final index = _conversations.indexWhere((c) => c.id == conversation.id);
     if (index != -1 && _conversations[index].unreadCount > 0) {
       _conversations[index] = _conversations[index].copyWith(unreadCount: 0);
@@ -108,7 +269,7 @@ class ChatProvider extends ChangeNotifier {
           senderId: conversation.participants.isNotEmpty
               ? conversation.participants.first.id
               : 'other-user',
-          content: conversation.lastMessageText ?? 'Salom!',
+          content: conversation.lastMessageText ?? 'Salom! Qalaysiz?',
           messageType: conversation.lastMessageType ?? MessageType.text,
           status: MessageStatus.read,
           createdAt: conversation.lastMessageAt,
@@ -118,7 +279,6 @@ class ChatProvider extends ChangeNotifier {
 
     notifyListeners();
 
-    // Subscribe to Supabase realtime if connected
     if (_supabaseService.isInitialized) {
       _subscribeToRealtime(conversation.id);
     }
@@ -145,6 +305,9 @@ class ChatProvider extends ChangeNotifier {
     _currentMessages = [];
     _replyingToMessage = null;
     _editingMessage = null;
+    _audioPlayer?.stop();
+    _isVoicePlaying = false;
+    _currentlyPlayingVoiceMsgId = null;
     notifyListeners();
   }
 
@@ -163,13 +326,73 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // DELETE CHAT CONVERSATION COMPLETELY
-  void deleteChat(String chatId) {
+  // DELETE MESSAGE
+  void deleteMessage(String messageId) {
+    _currentMessages.removeWhere((m) => m.id == messageId);
+    if (_activeChat != null && _currentMessages.isNotEmpty) {
+      _updateLastMessage(_currentMessages.last);
+    }
+    notifyListeners();
+  }
+
+  // DELETE CHAT CONVERSATION COMPLETELY WITH CLEANUP
+  void deleteChatCompletely(String chatId) {
     _conversations.removeWhere((c) => c.id == chatId);
     if (_activeChat?.id == chatId) {
       closeChat();
     }
     notifyListeners();
+  }
+
+  // GROUP PERMISSIONS & ADMIN MANAGEMENT
+  void toggleGroupAdmin(String chatId, String userId) {
+    final idx = _conversations.indexWhere((c) => c.id == chatId);
+    if (idx != -1) {
+      final currentAdmins = List<String>.from(_conversations[idx].adminIds);
+      if (currentAdmins.contains(userId)) {
+        currentAdmins.remove(userId);
+      } else {
+        currentAdmins.add(userId);
+      }
+      _conversations[idx] = _conversations[idx].copyWith(adminIds: currentAdmins);
+      if (_activeChat?.id == chatId) {
+        _activeChat = _conversations[idx];
+      }
+      notifyListeners();
+    }
+  }
+
+  void toggleGroupBlockMember(String chatId, String userId) {
+    final idx = _conversations.indexWhere((c) => c.id == chatId);
+    if (idx != -1) {
+      final currentBlocked = List<String>.from(_conversations[idx].blockedMemberIds);
+      if (currentBlocked.contains(userId)) {
+        currentBlocked.remove(userId);
+      } else {
+        currentBlocked.add(userId);
+      }
+      _conversations[idx] = _conversations[idx].copyWith(blockedMemberIds: currentBlocked);
+      if (_activeChat?.id == chatId) {
+        _activeChat = _conversations[idx];
+      }
+      notifyListeners();
+    }
+  }
+
+  void removeGroupMember(String chatId, String userId) {
+    final idx = _conversations.indexWhere((c) => c.id == chatId);
+    if (idx != -1) {
+      final updatedParticipants = _conversations[idx].participants.where((p) => p.id != userId).toList();
+      final updatedAdmins = _conversations[idx].adminIds.where((id) => id != userId).toList();
+      _conversations[idx] = _conversations[idx].copyWith(
+        participants: updatedParticipants,
+        adminIds: updatedAdmins,
+      );
+      if (_activeChat?.id == chatId) {
+        _activeChat = _conversations[idx];
+      }
+      notifyListeners();
+    }
   }
 
   // SEND MESSAGE
@@ -221,12 +444,10 @@ class ChatProvider extends ChangeNotifier {
     _replyingToMessage = null;
     notifyListeners();
 
-    // Send to Supabase DB if connected
     if (_supabaseService.isInitialized) {
       await _supabaseService.sendMessage(newMsg);
     } else {
-      // Simulate reply after 1.5 seconds for interactive demo feeling
-      _simulateDemoReply(newMsg);
+      _simulateIntelligentReply(newMsg);
     }
   }
 
@@ -235,8 +456,9 @@ class ChatProvider extends ChangeNotifier {
     final idx = _conversations.indexWhere((c) => c.id == _activeChat!.id);
     if (idx != -1) {
       String preview = msg.content;
-      if (msg.messageType == MessageType.image) preview = '📷 Rasm yuborildi';
-      if (msg.messageType == MessageType.voice) preview = '🎤 Ovozli xabar (${msg.voiceDuration ?? 10}s)';
+      if (msg.messageType == MessageType.image) preview = '📷 Rasm';
+      if (msg.messageType == MessageType.video) preview = '🎥 Video';
+      if (msg.messageType == MessageType.voice) preview = '🎤 Ovoz (${msg.voiceDuration ?? 10}s)';
       if (msg.messageType == MessageType.doc) preview = '📄 ${msg.fileName ?? "Hujjat"}';
 
       _conversations[idx] = _conversations[idx].copyWith(
@@ -247,20 +469,31 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  void _simulateDemoReply(ChatMessage userMsg) {
+  // DYNAMIC INTELLIGENT BOT REPLIES
+  void _simulateIntelligentReply(ChatMessage userMsg) {
     if (_activeChat == null || _activeChat!.isGroup) return;
 
-    Future.delayed(const Duration(milliseconds: 1500), () {
+    final targetContact = _activeChat!.participants.isNotEmpty
+        ? _activeChat!.participants.first
+        : UserProfile(id: 'demo-user', username: 'user', fullName: _activeChat!.name);
+
+    // If target contact is blocked, do not reply
+    if (_blockedUserIds.contains(targetContact.id)) return;
+
+    Future.delayed(const Duration(milliseconds: 1200), () {
       if (_activeChat == null) return;
+
+      final replyContent = SmartReplyHelper.generateReply(
+        userMessage: userMsg,
+        contactName: targetContact.fullName,
+      );
 
       final replyMsg = ChatMessage(
         id: _uuid.v4(),
         chatId: _activeChat!.id,
-        senderId: _activeChat!.participants.isNotEmpty
-            ? _activeChat!.participants.first.id
-            : 'other-user',
+        senderId: targetContact.id,
         messageType: MessageType.text,
-        content: "Ajoyib! SupaChat Messenger tizimi juda tez va qulay ishlamoqda. 🚀",
+        content: replyContent,
         status: MessageStatus.read,
         createdAt: DateTime.now(),
       );
@@ -268,7 +501,6 @@ class ChatProvider extends ChangeNotifier {
       _currentMessages.add(replyMsg);
       _updateLastMessage(replyMsg);
 
-      // Mark all previous user messages as read
       for (int i = 0; i < _currentMessages.length; i++) {
         if (_currentMessages[i].senderId == userMsg.senderId) {
           _currentMessages[i] = _currentMessages[i].copyWith(status: MessageStatus.read);
@@ -279,18 +511,46 @@ class ChatProvider extends ChangeNotifier {
     });
   }
 
-  // Voice note play/pause toggle
-  void togglePlayVoice(String msgId, int durationSeconds) {
+  // Voice note play/pause toggle with AudioPlayer
+  Future<void> togglePlayVoice(String msgId, int durationSeconds) async {
     if (_currentlyPlayingVoiceMsgId == msgId && _isVoicePlaying) {
+      await _audioPlayer?.pause();
       _isVoicePlaying = false;
       notifyListeners();
-    } else {
-      _currentlyPlayingVoiceMsgId = msgId;
-      _isVoicePlaying = true;
-      _voiceProgress = 0.0;
-      notifyListeners();
+      return;
+    }
 
-      // Simulate playback progression
+    if (_currentlyPlayingVoiceMsgId == msgId && !_isVoicePlaying) {
+      await _audioPlayer?.resume();
+      _isVoicePlaying = true;
+      notifyListeners();
+      return;
+    }
+
+    await _audioPlayer?.stop();
+    _currentlyPlayingVoiceMsgId = msgId;
+    _isVoicePlaying = true;
+    _voiceProgress = 0.0;
+    notifyListeners();
+
+    final msg = _currentMessages.firstWhere(
+      (m) => m.id == msgId,
+      orElse: () => ChatMessage(
+        id: msgId,
+        chatId: '',
+        senderId: '',
+        content: '',
+        createdAt: DateTime.now(),
+      ),
+    );
+
+    try {
+      if (msg.mediaUrl != null && msg.mediaUrl!.startsWith('http')) {
+        await _audioPlayer!.play(UrlSource(msg.mediaUrl!));
+      } else {
+        _simulateVoiceProgress(msgId, durationSeconds);
+      }
+    } catch (e) {
       _simulateVoiceProgress(msgId, durationSeconds);
     }
   }
@@ -318,19 +578,22 @@ class ChatProvider extends ChangeNotifier {
     Future.delayed(const Duration(milliseconds: stepDurationMs), tick);
   }
 
-  // Create new group
+  // Create new group with creator as owner
   void createNewGroup({
     required String groupName,
     required List<UserProfile> members,
     String? avatarUrl,
+    required String creatorId,
   }) {
     final newGroup = ChatConversation(
       id: 'group-${_uuid.v4()}',
       isGroup: true,
       name: groupName,
       avatarUrl: avatarUrl,
+      createdBy: creatorId,
+      adminIds: [creatorId],
       participants: members,
-      lastMessageText: 'Guruh yaratildi',
+      lastMessageText: 'Guruh yaratildi 🎉',
       lastMessageType: MessageType.text,
       lastMessageAt: DateTime.now(),
       unreadCount: 0,

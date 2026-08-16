@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/avatar_helper.dart';
 import '../../../data/models/user_profile.dart';
 import '../../../data/models/chat_conversation.dart';
 import '../../../providers/auth_provider.dart';
@@ -55,13 +55,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 height: 36,
                 decoration: const BoxDecoration(shape: BoxShape.circle),
                 child: ClipOval(
-                  child: currentUser.avatarUrl != null
-                      ? CachedNetworkImage(
-                          imageUrl: currentUser.avatarUrl!,
-                          fit: BoxFit.cover,
-                          errorWidget: (c, url, err) => const Icon(Icons.person, color: AppTheme.primary),
-                        )
-                      : const Icon(Icons.person, color: AppTheme.primary),
+                  child: AvatarHelper.buildAvatarWidget(
+                    avatarUrl: currentUser.avatarUrl,
+                    name: currentUser.fullName,
+                    radius: 18,
+                  ),
                 ),
               ),
             ),
@@ -217,18 +215,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
         children: [
           Stack(
             children: [
-              CircleAvatar(
+              AvatarHelper.buildAvatarWidget(
+                avatarUrl: contact.avatarUrl,
+                name: contact.fullName,
                 radius: 24,
-                backgroundColor: AppTheme.primary.withValues(alpha: 0.1),
-                backgroundImage: contact.avatarUrl != null
-                    ? CachedNetworkImageProvider(contact.avatarUrl!)
-                    : null,
-                child: contact.avatarUrl == null
-                    ? Text(
-                        contact.fullName.isNotEmpty ? contact.fullName[0] : '?',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      )
-                    : null,
               ),
               if (contact.isOnline)
                 Positioned(
@@ -369,6 +359,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   void _showCreateGroupDialog(BuildContext context) {
     final groupNameController = TextEditingController();
     final chatProvider = context.read<ChatProvider>();
+    final authProvider = context.read<AuthProvider>();
     final selectedMembers = <UserProfile>{};
 
     showDialog(
@@ -442,6 +433,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       chatProvider.createNewGroup(
                         groupName: name,
                         members: selectedMembers.toList(),
+                        creatorId: authProvider.currentUser.id,
                       );
                       Navigator.pop(ctx);
                       ScaffoldMessenger.of(context).showSnackBar(

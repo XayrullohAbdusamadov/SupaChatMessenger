@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/avatar_helper.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/chat_provider.dart';
 import 'widgets/story_avatar_bar.dart';
@@ -44,13 +44,11 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
               height: 38,
               decoration: const BoxDecoration(shape: BoxShape.circle),
               child: ClipOval(
-                child: currentUser.avatarUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: currentUser.avatarUrl!,
-                        fit: BoxFit.cover,
-                        errorWidget: (c, url, err) => const Icon(Icons.person, color: AppTheme.primary),
-                      )
-                    : const Icon(Icons.person, color: AppTheme.primary),
+                child: AvatarHelper.buildAvatarWidget(
+                  avatarUrl: currentUser.avatarUrl,
+                  name: currentUser.fullName,
+                  radius: 19,
+                ),
               ),
             ),
           ),
@@ -238,11 +236,10 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                     itemBuilder: (c, idx) {
                       final contact = chatProvider.contacts[idx];
                       return ListTile(
-                        leading: CircleAvatar(
-                          backgroundImage: contact.avatarUrl != null
-                              ? CachedNetworkImageProvider(contact.avatarUrl!)
-                              : null,
-                          child: contact.avatarUrl == null ? Text(contact.fullName[0]) : null,
+                        leading: AvatarHelper.buildAvatarWidget(
+                          avatarUrl: contact.avatarUrl,
+                          name: contact.fullName,
+                          radius: 20,
                         ),
                         title: Text(contact.fullName, style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text('@${contact.username} • ${contact.role ?? contact.about}'),

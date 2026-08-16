@@ -7,6 +7,8 @@ class ChatConversation {
   final String name;
   final String? avatarUrl;
   final String? createdBy;
+  final List<String> adminIds;
+  final List<String> blockedMemberIds;
   final List<UserProfile> participants;
   final ChatMessage? lastMessage;
   final String? lastMessageText;
@@ -23,6 +25,8 @@ class ChatConversation {
     required this.name,
     this.avatarUrl,
     this.createdBy,
+    this.adminIds = const [],
+    this.blockedMemberIds = const [],
     this.participants = const [],
     this.lastMessage,
     this.lastMessageText,
@@ -33,6 +37,10 @@ class ChatConversation {
     this.typingUserName,
     this.draftMessage,
   }) : lastMessageAt = lastMessageAt ?? DateTime.now();
+
+  bool isOwner(String userId) => createdBy == userId;
+  bool isAdmin(String userId) => isOwner(userId) || adminIds.contains(userId);
+  bool isMemberBlocked(String userId) => blockedMemberIds.contains(userId);
 
   factory ChatConversation.fromJson(
     Map<String, dynamic> json, {
@@ -45,6 +53,8 @@ class ChatConversation {
       name: json['group_name'] as String? ?? 'Chat',
       avatarUrl: json['group_avatar'] as String?,
       createdBy: json['created_by'] as String?,
+      adminIds: (json['admin_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+      blockedMemberIds: (json['blocked_member_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
       participants: participants,
       lastMessage: lastMessage,
       lastMessageText: json['last_message_text'] as String?,
@@ -69,6 +79,8 @@ class ChatConversation {
       'group_name': name,
       'group_avatar': avatarUrl,
       'created_by': createdBy,
+      'admin_ids': adminIds,
+      'blocked_member_ids': blockedMemberIds,
       'last_message_text': lastMessageText,
       'last_message_type': lastMessageType?.name,
       'last_message_at': lastMessageAt.toIso8601String(),
@@ -81,6 +93,8 @@ class ChatConversation {
     String? name,
     String? avatarUrl,
     String? createdBy,
+    List<String>? adminIds,
+    List<String>? blockedMemberIds,
     List<UserProfile>? participants,
     ChatMessage? lastMessage,
     String? lastMessageText,
@@ -97,6 +111,8 @@ class ChatConversation {
       name: name ?? this.name,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       createdBy: createdBy ?? this.createdBy,
+      adminIds: adminIds ?? this.adminIds,
+      blockedMemberIds: blockedMemberIds ?? this.blockedMemberIds,
       participants: participants ?? this.participants,
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageText: lastMessageText ?? this.lastMessageText,
