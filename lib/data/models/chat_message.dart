@@ -28,6 +28,7 @@ class ChatMessage {
   final MessageStatus status;
   final bool isEdited;
   final bool isDeleted;
+  final List<String> reactions;
   final DateTime createdAt;
 
   ChatMessage({
@@ -45,8 +46,10 @@ class ChatMessage {
     this.status = MessageStatus.sent,
     this.isEdited = false,
     this.isDeleted = false,
+    List<String>? reactions,
     DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
+  })  : reactions = reactions ?? [],
+        createdAt = createdAt ?? DateTime.now();
 
   factory ChatMessage.fromJson(Map<String, dynamic> json, {ChatMessage? replyMessage}) {
     MessageType type = MessageType.text;
@@ -85,6 +88,11 @@ class ChatMessage {
         stat = MessageStatus.sent;
     }
 
+    List<String> reactList = [];
+    if (json['reactions'] != null && json['reactions'] is List) {
+      reactList = List<String>.from(json['reactions']);
+    }
+
     return ChatMessage(
       id: json['id'] as String,
       chatId: json['chat_id'] as String,
@@ -100,6 +108,7 @@ class ChatMessage {
       status: stat,
       isEdited: json['is_edited'] as bool? ?? false,
       isDeleted: json['is_deleted'] as bool? ?? false,
+      reactions: reactList,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now()
           : DateTime.now(),
@@ -121,6 +130,7 @@ class ChatMessage {
       'status': status.name,
       'is_edited': isEdited,
       'is_deleted': isDeleted,
+      'reactions': reactions,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -140,6 +150,7 @@ class ChatMessage {
     MessageStatus? status,
     bool? isEdited,
     bool? isDeleted,
+    List<String>? reactions,
     DateTime? createdAt,
   }) {
     return ChatMessage(
@@ -157,6 +168,7 @@ class ChatMessage {
       status: status ?? this.status,
       isEdited: isEdited ?? this.isEdited,
       isDeleted: isDeleted ?? this.isDeleted,
+      reactions: reactions ?? this.reactions,
       createdAt: createdAt ?? this.createdAt,
     );
   }

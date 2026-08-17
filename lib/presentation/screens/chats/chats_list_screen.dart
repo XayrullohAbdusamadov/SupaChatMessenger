@@ -123,52 +123,130 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
               child: Divider(height: 1, thickness: 0.5),
             ),
 
-            // CHATS LIST
-            if (chatProvider.conversations.isEmpty)
-              SliverFillRemaining(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        size: 56,
-                        color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Suhbatlar topilmadi',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
-                        ),
-                      ),
-                    ],
+            // SEARCH RESULTS OR NORMAL CHATS LIST
+            if (_isSearching && chatProvider.searchQuery.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Text(
+                    'Foydalanuvchilardan qidiruv (@username):',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.primary,
+                    ),
                   ),
                 ),
-              )
-            else
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final conversation = chatProvider.conversations[index];
-                    return ChatListItem(
-                      conversation: conversation,
-                      onTap: () {
-                        chatProvider.openChat(conversation, currentUser.id);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ChatDetailScreen(conversation: conversation),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                  childCount: chatProvider.conversations.length,
-                ),
               ),
+              if (chatProvider.contacts.isEmpty)
+                SliverFillRemaining(
+                  child: Center(
+                    child: Text(
+                      'Ushbu username bo\'yicha akkaunt topilmadi',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final contact = chatProvider.contacts[index];
+                      return ListTile(
+                        leading: AvatarHelper.buildAvatarWidget(
+                          avatarUrl: contact.avatarUrl,
+                          name: contact.fullName,
+                          radius: 22,
+                        ),
+                        title: Text(
+                          contact.fullName,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        subtitle: Text(
+                          '@${contact.username} • ${contact.about}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                          ),
+                        ),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'Yozish',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primary),
+                          ),
+                        ),
+                        onTap: () {
+                          final chat = chatProvider.startDirectChat(contact);
+                          chatProvider.openChat(chat, currentUser.id);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ChatDetailScreen(conversation: chat),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                    childCount: chatProvider.contacts.length,
+                  ),
+                ),
+            ] else ...[
+              if (chatProvider.conversations.isEmpty)
+                SliverFillRemaining(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          size: 56,
+                          color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Suhbatlar topilmadi',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final conversation = chatProvider.conversations[index];
+                      return ChatListItem(
+                        conversation: conversation,
+                        onTap: () {
+                          chatProvider.openChat(conversation, currentUser.id);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ChatDetailScreen(conversation: conversation),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                    childCount: chatProvider.conversations.length,
+                  ),
+                ),
+            ],
             const SliverToBoxAdapter(
               child: SizedBox(height: 80),
             ),

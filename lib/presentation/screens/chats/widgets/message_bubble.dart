@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../data/models/chat_message.dart';
+import '../../../../providers/chat_provider.dart';
 import 'voice_message_player.dart';
 import 'media_attachment_card.dart';
 
@@ -154,6 +156,8 @@ class MessageBubble extends StatelessWidget {
                             ],
                           ),
                         ),
+                      // TELEGRAM STYLE REACTION BADGES ATTACHED TO BUBBLE
+                      _buildTelegramReactionBadges(context, isDark),
                     ],
                   ),
                 ),
@@ -310,15 +314,11 @@ class MessageBubble extends StatelessWidget {
                   children: ['❤️', '😂', '😮', '😢', '🙏', '👍'].map((emoji) {
                     return GestureDetector(
                       onTap: () {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('$emoji Reaksiya qoldirildi'),
-                            duration: const Duration(seconds: 1),
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
+                        context.read<ChatProvider>().toggleReaction(
+                          messageId: message.id,
+                          emoji: emoji,
                         );
+                        Navigator.pop(ctx);
                       },
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 150),
@@ -522,6 +522,81 @@ class MessageBubble extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildTelegramReactionBadges(BuildContext context, bool isDark) {
+    if (message.reactions.isEmpty) return const SizedBox.shrink();
+
+    // Group reactions by emoji to get count
+    final Map<String, int> counts = {};
+    for (var r in message.reactions) {
+      counts[r] = (counts[r] ?? 0) + 1;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 10, right: 10, bottom: 6, top: 2),
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        children: counts.entries.map((entry) {
+          final emoji = entry.key;
+          final count = entry.value;
+
+          return GestureDetector(
+            onTap: () {
+              context.read<ChatProvider>().toggleReaction(
+                    messageId: message.id,
+                    emoji: emoji,
+                  );
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: isMe
+                    ? Colors.white.withValues(alpha: 0.22)
+                    : (isDark ? Colors.black.withValues(alpha: 0.35) : Colors.white),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isMe
+                      ? Colors.white.withValues(alpha: 0.35)
+                      : (isDark ? Colors.white12 : Colors.black12),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    emoji,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  if (count > 1) ...[
+                    const SizedBox(width: 3),
+                    Text(
+                      '$count',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: isMe
+                            ? Colors.white
+                            : (isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }

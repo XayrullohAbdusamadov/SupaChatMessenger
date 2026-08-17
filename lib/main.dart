@@ -4,6 +4,7 @@ import 'core/theme/app_theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/theme_provider.dart';
+import 'presentation/screens/auth/auth_screen.dart';
 import 'presentation/screens/main_navigation_screen.dart';
 
 void main() async {
@@ -27,6 +28,7 @@ class SupaChatApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
+    final authProvider = context.watch<AuthProvider>();
 
     return MaterialApp(
       title: 'SupaChat Messenger',
@@ -34,7 +36,7 @@ class SupaChatApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeProvider.themeMode,
-      home: const MainNavigationScreen(),
+      home: authProvider.isLoggedIn ? const MainNavigationScreen() : const AuthScreen(),
     );
   }
 }

@@ -717,7 +717,7 @@ class ProfileSettingsScreen extends StatelessWidget {
             ),
             onPressed: () async {
               Navigator.pop(ctx);
-              await auth.disconnectSupabase();
+              await auth.logout();
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(

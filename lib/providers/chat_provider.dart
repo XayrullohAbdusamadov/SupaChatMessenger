@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -249,7 +250,7 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // Open Chat Screen
-  void openChat(ChatConversation conversation, String currentUserId) {
+  void openChat(ChatConversation conversation, String currentUserId) async {
     _activeChat = conversation;
     _replyingToMessage = null;
     _editingMessage = null;
@@ -259,28 +260,62 @@ class ChatProvider extends ChangeNotifier {
       _conversations[index] = _conversations[index].copyWith(unreadCount: 0);
     }
 
-    if (conversation.id == 'chat-lola') {
-      _currentMessages = MockData.getLolaMessages();
-    } else {
-      _currentMessages = [
-        ChatMessage(
-          id: _uuid.v4(),
-          chatId: conversation.id,
-          senderId: conversation.participants.isNotEmpty
-              ? conversation.participants.first.id
-              : 'other-user',
-          content: conversation.lastMessageText ?? 'Salom! Qalaysiz?',
-          messageType: conversation.lastMessageType ?? MessageType.text,
-          status: MessageStatus.read,
-          createdAt: conversation.lastMessageAt,
-        ),
-      ];
+    await _loadMessagesFromLocalCache(conversation.id);
+
+    if (_currentMessages.isEmpty) {
+      if (conversation.id == 'chat-lola') {
+        _currentMessages = MockData.getLolaMessages();
+      } else {
+        _currentMessages = [
+          ChatMessage(
+            id: _uuid.v4(),
+            chatId: conversation.id,
+            senderId: conversation.participants.isNotEmpty
+                ? conversation.participants.first.id
+                : 'other-user',
+            content: conversation.lastMessageText ?? 'Salom! Qalaysiz?',
+            messageType: conversation.lastMessageType ?? MessageType.text,
+            status: MessageStatus.read,
+            createdAt: conversation.lastMessageAt,
+          ),
+        ];
+      }
+      await _saveMessagesToLocalCache(conversation.id);
     }
 
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
+      final fetched = await _supabaseService.fetchMessages(conversation.id);
+      if (fetched.isNotEmpty) {
+        _currentMessages = fetched;
+        await _saveMessagesToLocalCache(conversation.id);
+        notifyListeners();
+      }
       _subscribeToRealtime(conversation.id);
+    }
+  }
+
+  Future<void> _loadMessagesFromLocalCache(String chatId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString('chat_messages_$chatId');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List decoded = jsonDecode(jsonStr);
+        _currentMessages = decoded.map((j) => ChatMessage.fromJson(j)).toList();
+      }
+    } catch (e) {
+      debugPrint('Error loading cached messages: $e');
+    }
+  }
+
+  Future<void> _saveMessagesToLocalCache(String chatId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(_currentMessages.map((m) => m.toJson()).toList());
+      await prefs.setString('chat_messages_$chatId', encoded);
+    } catch (e) {
+      debugPrint('Error saving cached messages: $e');
     }
   }
 
@@ -333,6 +368,21 @@ class ChatProvider extends ChangeNotifier {
       _updateLastMessage(_currentMessages.last);
     }
     notifyListeners();
+  }
+
+  // TOGGLE REACTION ON MESSAGE
+  void toggleReaction({required String messageId, required String emoji}) {
+    final idx = _currentMessages.indexWhere((m) => m.id == messageId);
+    if (idx != -1) {
+      final currentList = List<String>.from(_currentMessages[idx].reactions);
+      if (currentList.contains(emoji)) {
+        currentList.remove(emoji);
+      } else {
+        currentList.add(emoji);
+      }
+      _currentMessages[idx] = _currentMessages[idx].copyWith(reactions: currentList);
+      notifyListeners();
+    }
   }
 
   // DELETE CHAT CONVERSATION COMPLETELY WITH CLEANUP
@@ -453,6 +503,9 @@ class ChatProvider extends ChangeNotifier {
     _currentMessages.add(newMsg);
     _updateLastMessage(newMsg);
     _replyingToMessage = null;
+    if (_activeChat != null) {
+      _saveMessagesToLocalCache(_activeChat!.id);
+    }
     notifyListeners();
 
     if (_supabaseService.isInitialized) {

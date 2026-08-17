@@ -10,12 +10,14 @@ class AuthProvider extends ChangeNotifier {
   final SupabaseService _supabaseService = SupabaseService.instance;
 
   UserProfile _currentUser = MockData.currentUser;
+  bool _isLoggedIn = false;
   bool _isLoading = false;
   bool _biometricEnabled = true;
   String? _errorMessage;
   bool _isSupabaseConnected = false;
 
   UserProfile get currentUser => _currentUser;
+  bool get isLoggedIn => _isLoggedIn;
   bool get isLoading => _isLoading;
   bool get biometricEnabled => _biometricEnabled;
   String? get errorMessage => _errorMessage;
@@ -35,6 +37,7 @@ class AuthProvider extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     _biometricEnabled = prefs.getBool('biometric_enabled') ?? true;
+    _isLoggedIn = prefs.getBool('is_logged_in') ?? false;
 
     // Load saved local profile if any
     final savedAvatar = prefs.getString('local_avatar_url');
@@ -42,12 +45,15 @@ class AuthProvider extends ChangeNotifier {
     final savedUsername = prefs.getString('local_username');
     final savedAbout = prefs.getString('local_about');
 
-    _currentUser = _currentUser.copyWith(
-      fullName: savedName ?? _currentUser.fullName,
-      username: savedUsername ?? _currentUser.username,
-      about: savedAbout ?? _currentUser.about,
-      avatarUrl: savedAvatar ?? _currentUser.avatarUrl,
-    );
+    if (savedUsername != null) {
+      _currentUser = UserProfile(
+        id: 'user-$savedUsername',
+        username: savedUsername,
+        fullName: savedName ?? savedUsername,
+        about: savedAbout ?? _currentUser.about,
+        avatarUrl: savedAvatar,
+      );
+    }
 
     if (connected && _supabaseService.isAuthenticated) {
       final user = _supabaseService.currentAuthUser;
@@ -62,6 +68,139 @@ class AuthProvider extends ChangeNotifier {
     }
 
     _isLoading = false;
+    notifyListeners();
+  }
+
+  Future<bool> loginByUsername(String username, String password) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    final cleanUsername = username.trim().toLowerCase();
+
+    try {
+      if (_isSupabaseConnected) {
+        final email = '$cleanUsername@supachat.local';
+        final response = await _supabaseService.signInWithEmail(email, password);
+        if (response?.user != null) {
+          final profile = await _supabaseService.fetchProfile(response!.user!.id);
+          if (profile != null) {
+            _currentUser = profile;
+          } else {
+            _currentUser = UserProfile(
+              id: response.user!.id,
+              username: cleanUsername,
+              fullName: cleanUsername,
+            );
+          }
+        }
+      } else {
+        // Local / Offline persistent mode per username
+        await Future.delayed(const Duration(milliseconds: 500));
+        final prefs = await SharedPreferences.getInstance();
+        final savedName = prefs.getString('user_${cleanUsername}_full_name');
+        final savedAbout = prefs.getString('user_${cleanUsername}_about');
+        final savedAvatar = prefs.getString('user_${cleanUsername}_avatar_url');
+
+        _currentUser = UserProfile(
+          id: 'user-$cleanUsername',
+          username: cleanUsername,
+          fullName: savedName ?? username.trim(),
+          about: savedAbout ?? 'Hey there! I am using SupaChat.',
+          avatarUrl: savedAvatar,
+        );
+      }
+
+      _isLoggedIn = true;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_logged_in', true);
+      await prefs.setString('local_username', cleanUsername);
+      await prefs.setString('local_full_name', _currentUser.fullName);
+      await prefs.setString('local_about', _currentUser.about);
+      if (_currentUser.avatarUrl != null) {
+        await prefs.setString('local_avatar_url', _currentUser.avatarUrl!);
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return false;
+  }
+
+  Future<bool> registerByUsername({
+    required String username,
+    required String fullName,
+    required String about,
+    required String password,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    final cleanUsername = username.trim().toLowerCase();
+
+    try {
+      if (_isSupabaseConnected) {
+        final email = '$cleanUsername@supachat.local';
+        final response = await _supabaseService.signUpWithEmail(
+          email,
+          password,
+          username: cleanUsername,
+          fullName: fullName,
+        );
+        final userId = response?.user?.id ?? 'user-$cleanUsername';
+        _currentUser = UserProfile(
+          id: userId,
+          username: cleanUsername,
+          fullName: fullName,
+          about: about,
+        );
+        await _supabaseService.updateProfile(_currentUser);
+      } else {
+        // Offline / demo registration
+        await Future.delayed(const Duration(milliseconds: 500));
+        _currentUser = UserProfile(
+          id: 'user-$cleanUsername',
+          username: cleanUsername,
+          fullName: fullName,
+          about: about,
+        );
+      }
+
+      _isLoggedIn = true;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_logged_in', true);
+      await prefs.setString('local_username', cleanUsername);
+      await prefs.setString('local_full_name', fullName);
+      await prefs.setString('local_about', about);
+      await prefs.setString('user_${cleanUsername}_full_name', fullName);
+      await prefs.setString('user_${cleanUsername}_about', about);
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return false;
+  }
+
+  Future<void> logout() async {
+    _isLoggedIn = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_logged_in', false);
+    if (_isSupabaseConnected) {
+      await _supabaseService.signOut();
+    }
     notifyListeners();
   }
 
