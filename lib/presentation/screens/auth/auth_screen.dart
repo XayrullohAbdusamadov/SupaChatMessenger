@@ -247,8 +247,12 @@ class _AuthScreenState extends State<AuthScreen> {
                               if (val == null || val.trim().isEmpty) {
                                 return 'Usernameni kiriting';
                               }
-                              if (val.trim().length < 3) {
-                                return 'Username kamida 3 ta belgidan iborat bo\'lsin';
+                              final clean = val.trim().toLowerCase();
+                              if (clean.length < 4) {
+                                return 'Username kamida 4 ta belgidan iborat bo\'lishi shart';
+                              }
+                              if (!RegExp(r'^[a-z0-9_]+$').hasMatch(clean)) {
+                                return 'Username faqat lotin harflari (a-z), raqamlar va _ bo\'lsin!';
                               }
                               return null;
                             },
@@ -280,8 +284,13 @@ class _AuthScreenState extends State<AuthScreen> {
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                               ),
                               validator: (val) {
-                                if (!_isLoginMode && (val == null || val.trim().isEmpty)) {
-                                  return 'Ismingizni kiriting';
+                                if (!_isLoginMode) {
+                                  if (val == null || val.trim().isEmpty) {
+                                    return 'Ismingizni kiriting';
+                                  }
+                                  if (val.trim().length < 3) {
+                                    return 'Ismingiz kamida 3 ta belgidan iborat bo\'lsin';
+                                  }
                                 }
                                 return null;
                               },
@@ -348,8 +357,8 @@ class _AuthScreenState extends State<AuthScreen> {
                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                             ),
                             validator: (val) {
-                              if (val == null || val.length < 4) {
-                                return 'Parol kamida 4 ta belgidan iborat bo\'lsin';
+                              if (val == null || val.length < 6) {
+                                return 'Parol kamida 6 ta belgidan iborat bo\'lishi shart';
                               }
                               return null;
                             },

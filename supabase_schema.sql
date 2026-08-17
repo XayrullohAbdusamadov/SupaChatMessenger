@@ -147,6 +147,7 @@ DROP POLICY IF EXISTS "Foydalanuvchi faqat o'z xabarini tahrirlay oladi" ON publ
 DROP POLICY IF EXISTS "Foydalanuvchi faqat o'z xabarini o'chira oladi" ON public.messages;
 DROP POLICY IF EXISTS "Har kim storylarni ko'ra oladi" ON public.stories;
 DROP POLICY IF EXISTS "Foydalanuvchi o'z storylarini yuklay oladi" ON public.stories;
+DROP POLICY IF EXISTS "Foydalanuvchi o'z storylarini o'chira oladi" ON public.stories;
 DROP POLICY IF EXISTS "Foydalanuvchi o'z bloklaganlarini boshqara oladi" ON public.blocked_users;
 
 -- Yangi siyosatlar
