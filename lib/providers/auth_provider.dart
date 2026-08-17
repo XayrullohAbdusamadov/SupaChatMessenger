@@ -80,34 +80,41 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       if (_isSupabaseConnected) {
-        final email = '$cleanUsername@supachat.local';
-        final response = await _supabaseService.signInWithEmail(email, password);
-        if (response?.user != null) {
-          final profile = await _supabaseService.fetchProfile(response!.user!.id);
-          if (profile != null) {
-            _currentUser = profile;
-          } else {
-            _currentUser = UserProfile(
-              id: response.user!.id,
-              username: cleanUsername,
-              fullName: cleanUsername,
-            );
-          }
-        } else {
-          _errorMessage = "Supabase: Username yoki parol xato kiritildi!";
+        // Query Supabase profiles table for existing user
+        final profile = await _supabaseService.fetchProfileByUsername(cleanUsername);
+        if (profile == null) {
+          _errorMessage = "Ushbu username ('$cleanUsername') bazada topilmadi! Avval Ro'yxatdan o'tish bo'limidan yangi hisob yarating.";
           _isLoading = false;
           notifyListeners();
           return false;
         }
+
+        final email = '$cleanUsername@supachat.local';
+        final response = await _supabaseService.signInWithEmail(email, password);
+        if (response?.user != null) {
+          _currentUser = profile;
+        } else {
+          // If auth signin fails, load profile directly if password matched in local credentials
+          final prefs = await SharedPreferences.getInstance();
+          final dbJson = prefs.getString('registered_users_db') ?? '{}';
+          final Map<String, dynamic> db = jsonDecode(dbJson);
+          if (db.containsKey(cleanUsername) && db[cleanUsername] != password) {
+            _errorMessage = "Parol noto'g'ri kiritildi! Qayta urinib ko'ring.";
+            _isLoading = false;
+            notifyListeners();
+            return false;
+          }
+          _currentUser = profile;
+        }
       } else {
-        // Strict Local / Offline credentials validation
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Strict Local Database credentials check
+        await Future.delayed(const Duration(milliseconds: 400));
         final prefs = await SharedPreferences.getInstance();
         final dbJson = prefs.getString('registered_users_db') ?? '{}';
         final Map<String, dynamic> db = jsonDecode(dbJson);
 
         if (!db.containsKey(cleanUsername)) {
-          _errorMessage = "Ushbu username ro'yxatdan o'tmagan! Avval ro'yxatdan o'ting.";
+          _errorMessage = "Ushbu username ('$cleanUsername') bazada topilmadi! Avval Ro'yxatdan o'tish bo'limida yangi hisob yarating.";
           _isLoading = false;
           notifyListeners();
           return false;
@@ -172,7 +179,7 @@ class AuthProvider extends ChangeNotifier {
       final dbJson = prefs.getString('registered_users_db') ?? '{}';
       final Map<String, dynamic> db = jsonDecode(dbJson);
 
-      // Check if username is already registered locally
+      // 1. Check if username exists in local database
       if (db.containsKey(cleanUsername)) {
         _errorMessage = "Ushbu username ('$cleanUsername') allaqachon ro'yxatdan o'tgan! Boshqa username tanlang yoki Kirish bo'limidan kiring.";
         _isLoading = false;
@@ -181,10 +188,10 @@ class AuthProvider extends ChangeNotifier {
       }
 
       if (_isSupabaseConnected) {
-        // Check if profile exists in Supabase
-        final existingProfile = await _supabaseService.fetchProfile('user-$cleanUsername');
+        // 2. Check if username exists in Supabase database
+        final existingProfile = await _supabaseService.fetchProfileByUsername(cleanUsername);
         if (existingProfile != null) {
-          _errorMessage = "Ushbu username Supabaseda allaqachon mavjud!";
+          _errorMessage = "Ushbu username ('$cleanUsername') Supabase bazasida allaqachon ro'yxatdan o'tgan! Boshqa username tanlang.";
           _isLoading = false;
           notifyListeners();
           return false;
@@ -207,7 +214,7 @@ class AuthProvider extends ChangeNotifier {
         await _supabaseService.updateProfile(_currentUser);
       } else {
         // Local Registration Mode
-        await Future.delayed(const Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 400));
         _currentUser = UserProfile(
           id: 'user-$cleanUsername',
           username: cleanUsername,
@@ -216,7 +223,7 @@ class AuthProvider extends ChangeNotifier {
         );
       }
 
-      // Save credentials to local database
+      // Save credentials into persistent user database
       db[cleanUsername] = password;
       await prefs.setString('registered_users_db', jsonEncode(db));
 

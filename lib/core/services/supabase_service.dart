@@ -127,6 +127,24 @@ class SupabaseService {
     return null;
   }
 
+  Future<UserProfile?> fetchProfileByUsername(String username) async {
+    if (!isInitialized) return null;
+    try {
+      final response = await _client!
+          .from('profiles')
+          .select()
+          .eq('username', username.trim().toLowerCase())
+          .maybeSingle();
+
+      if (response != null) {
+        return UserProfile.fromJson(response);
+      }
+    } catch (e) {
+      debugPrint('Error fetching profile by username: $e');
+    }
+    return null;
+  }
+
   Future<bool> updateProfile(UserProfile profile) async {
     if (!isInitialized) return false;
     try {
