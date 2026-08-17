@@ -42,21 +42,21 @@ class AuthProvider extends ChangeNotifier {
     final savedUsername = prefs.getString('local_username');
     final savedAbout = prefs.getString('local_about');
 
-    if (savedName != null || savedAvatar != null) {
-      _currentUser = _currentUser.copyWith(
-        fullName: savedName ?? _currentUser.fullName,
-        username: savedUsername ?? _currentUser.username,
-        about: savedAbout ?? _currentUser.about,
-        avatarUrl: savedAvatar,
-      );
-    }
+    _currentUser = _currentUser.copyWith(
+      fullName: savedName ?? _currentUser.fullName,
+      username: savedUsername ?? _currentUser.username,
+      about: savedAbout ?? _currentUser.about,
+      avatarUrl: savedAvatar ?? _currentUser.avatarUrl,
+    );
 
     if (connected && _supabaseService.isAuthenticated) {
       final user = _supabaseService.currentAuthUser;
       if (user != null) {
         final profile = await _supabaseService.fetchProfile(user.id);
         if (profile != null) {
-          _currentUser = profile;
+          _currentUser = profile.copyWith(
+            avatarUrl: savedAvatar ?? profile.avatarUrl ?? _currentUser.avatarUrl,
+          );
         }
       }
     }
@@ -84,7 +84,18 @@ class AuthProvider extends ChangeNotifier {
   Future<void> disconnectSupabase() async {
     await _supabaseService.disconnect();
     _isSupabaseConnected = false;
-    _currentUser = MockData.currentUser;
+    final prefs = await SharedPreferences.getInstance();
+    final savedAvatar = prefs.getString('local_avatar_url');
+    final savedName = prefs.getString('local_full_name');
+    final savedUsername = prefs.getString('local_username');
+    final savedAbout = prefs.getString('local_about');
+
+    _currentUser = MockData.currentUser.copyWith(
+      fullName: savedName ?? MockData.currentUser.fullName,
+      username: savedUsername ?? MockData.currentUser.username,
+      about: savedAbout ?? MockData.currentUser.about,
+      avatarUrl: savedAvatar ?? MockData.currentUser.avatarUrl,
+    );
     notifyListeners();
   }
 

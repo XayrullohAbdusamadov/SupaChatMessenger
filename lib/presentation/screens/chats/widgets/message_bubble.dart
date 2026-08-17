@@ -37,119 +37,176 @@ class MessageBubble extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Align(
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-        child: GestureDetector(
-          onLongPress: () => _showMessageOptions(context),
-          child: Container(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.78,
-            ),
-            decoration: BoxDecoration(
-              color: isMe
-                  ? AppTheme.outgoingBubble
-                  : (isDark ? AppTheme.incomingBubbleDark : AppTheme.incomingBubbleLight),
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(20),
-                topRight: const Radius.circular(20),
-                bottomLeft: Radius.circular(isMe ? 20 : 4),
-                bottomRight: Radius.circular(isMe ? 4 : 20),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(20),
-                topRight: const Radius.circular(20),
-                bottomLeft: Radius.circular(isMe ? 20 : 4),
-                bottomRight: Radius.circular(isMe ? 4 : 20),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // REPLY PREVIEW IF ANY
-                  if (message.replyToMessage != null)
-                    _buildReplyPreview(context, message.replyToMessage!, isDark),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // If outgoing message (isMe), place inline quick actions on the LEFT side of bubble
+          if (isMe) ...[
+            _buildInlineQuickActions(context, isDark),
+            const SizedBox(width: 6),
+          ],
 
-                  // BODY CONTENT BY TYPE
-                  if (message.messageType == MessageType.voice)
-                    VoiceMessagePlayer(
-                      messageId: message.id,
-                      durationSeconds: message.voiceDuration ?? 14,
-                      isPlaying: isVoicePlaying,
-                      progress: voiceProgress,
-                      isMe: isMe,
-                      createdAt: message.createdAt,
-                      onPlayToggle: onVoicePlayToggle,
-                    )
-                  else if (message.messageType == MessageType.image || message.messageType == MessageType.video || message.messageType == MessageType.doc)
-                    MediaAttachmentCard(
-                      message: message,
-                      isMe: isMe,
-                    )
-                  else
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            message.content,
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: isMe
-                                  ? Colors.white
-                                  : (isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary),
-                              height: 1.38,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.end,
+          // MESSAGE BUBBLE CONTAINER
+          Flexible(
+            child: GestureDetector(
+              onLongPress: () => _showMessageOptions(context),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.72,
+                ),
+                decoration: BoxDecoration(
+                  color: isMe
+                      ? AppTheme.outgoingBubble
+                      : (isDark ? AppTheme.incomingBubbleDark : AppTheme.incomingBubbleLight),
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(20),
+                    topRight: const Radius.circular(20),
+                    bottomLeft: Radius.circular(isMe ? 20 : 4),
+                    bottomRight: Radius.circular(isMe ? 4 : 20),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(20),
+                    topRight: const Radius.circular(20),
+                    bottomLeft: Radius.circular(isMe ? 20 : 4),
+                    bottomRight: Radius.circular(isMe ? 4 : 20),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // REPLY PREVIEW IF ANY
+                      if (message.replyToMessage != null)
+                        _buildReplyPreview(context, message.replyToMessage!, isDark),
+
+                      // BODY CONTENT BY TYPE
+                      if (message.messageType == MessageType.voice)
+                        VoiceMessagePlayer(
+                          messageId: message.id,
+                          durationSeconds: message.voiceDuration ?? 14,
+                          isPlaying: isVoicePlaying,
+                          progress: voiceProgress,
+                          isMe: isMe,
+                          createdAt: message.createdAt,
+                          onPlayToggle: onVoicePlayToggle,
+                        )
+                      else if (message.messageType == MessageType.image || message.messageType == MessageType.video || message.messageType == MessageType.doc)
+                        MediaAttachmentCard(
+                          message: message,
+                          isMe: isMe,
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (message.isEdited) ...[
-                                Text(
-                                  'tahrirlangan',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontStyle: FontStyle.italic,
-                                    color: isMe ? Colors.white70 : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                              ],
                               Text(
-                                DateFormatter.formatMessageTime(message.createdAt),
+                                message.content,
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 15,
                                   color: isMe
-                                      ? Colors.white70
-                                      : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
+                                      ? Colors.white
+                                      : (isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary),
+                                  height: 1.38,
                                 ),
                               ),
-                              if (isMe) ...[
-                                const SizedBox(width: 4),
-                                _buildStatusIcon(),
-                              ],
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  if (message.isEdited) ...[
+                                    Text(
+                                      'tahrirlangan',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontStyle: FontStyle.italic,
+                                        color: isMe ? Colors.white70 : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                  ],
+                                  Text(
+                                    DateFormatter.formatMessageTime(message.createdAt),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: isMe
+                                          ? Colors.white70
+                                          : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
+                                    ),
+                                  ),
+                                  if (isMe) ...[
+                                    const SizedBox(width: 4),
+                                    _buildStatusIcon(),
+                                  ],
+                                ],
+                              ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-                ],
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+
+          // If incoming message (!isMe), place inline quick actions on the RIGHT side of bubble
+          if (!isMe) ...[
+            const SizedBox(width: 6),
+            _buildInlineQuickActions(context, isDark),
+          ],
+        ],
       ),
+    );
+  }
+
+  Widget _buildInlineQuickActions(BuildContext context, bool isDark) {
+    final iconColor = isDark ? Colors.white54 : Colors.black45;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 1. Vertical 3 dots options (⋮)
+        InkWell(
+          onTap: () => _showMessageOptions(context),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(Icons.more_vert_rounded, size: 18, color: iconColor),
+          ),
+        ),
+        const SizedBox(width: 2),
+        // 2. Reply arrow (↩)
+        InkWell(
+          onTap: () => onReply(message),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(Icons.reply_rounded, size: 18, color: iconColor),
+          ),
+        ),
+        const SizedBox(width: 2),
+        // 3. Emoji reaction (😊)
+        InkWell(
+          onTap: () => _showMessageOptions(context),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(Icons.sentiment_satisfied_alt_outlined, size: 18, color: iconColor),
+          ),
+        ),
+      ],
     );
   }
 
