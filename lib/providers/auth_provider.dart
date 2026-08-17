@@ -93,11 +93,33 @@ class AuthProvider extends ChangeNotifier {
               fullName: cleanUsername,
             );
           }
+        } else {
+          _errorMessage = "Supabase: Username yoki parol xato kiritildi!";
+          _isLoading = false;
+          notifyListeners();
+          return false;
         }
       } else {
-        // Local / Offline persistent mode per username
+        // Strict Local / Offline credentials validation
         await Future.delayed(const Duration(milliseconds: 500));
         final prefs = await SharedPreferences.getInstance();
+        final dbJson = prefs.getString('registered_users_db') ?? '{}';
+        final Map<String, dynamic> db = jsonDecode(dbJson);
+
+        if (!db.containsKey(cleanUsername)) {
+          _errorMessage = "Ushbu username ro'yxatdan o'tmagan! Avval ro'yxatdan o'ting.";
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+
+        if (db[cleanUsername] != password) {
+          _errorMessage = "Parol noto'g'ri kiritildi! Qayta urinib ko'ring.";
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+
         final savedName = prefs.getString('user_${cleanUsername}_full_name');
         final savedAbout = prefs.getString('user_${cleanUsername}_about');
         final savedAvatar = prefs.getString('user_${cleanUsername}_avatar_url');
@@ -125,7 +147,7 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = "Kirishda xatolik yuz berdi: ${e.toString()}";
     }
 
     _isLoading = false;
@@ -146,6 +168,17 @@ class AuthProvider extends ChangeNotifier {
     final cleanUsername = username.trim().toLowerCase();
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final dbJson = prefs.getString('registered_users_db') ?? '{}';
+      final Map<String, dynamic> db = jsonDecode(dbJson);
+
+      if (db.containsKey(cleanUsername)) {
+        _errorMessage = "Ushbu username allaqachon band qilingan! Boshqa username kiriting.";
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
       if (_isSupabaseConnected) {
         final email = '$cleanUsername@supachat.local';
         final response = await _supabaseService.signUpWithEmail(
@@ -163,7 +196,7 @@ class AuthProvider extends ChangeNotifier {
         );
         await _supabaseService.updateProfile(_currentUser);
       } else {
-        // Offline / demo registration
+        // Offline registration
         await Future.delayed(const Duration(milliseconds: 500));
         _currentUser = UserProfile(
           id: 'user-$cleanUsername',
@@ -173,8 +206,11 @@ class AuthProvider extends ChangeNotifier {
         );
       }
 
+      // Save credentials into persistent user database
+      db[cleanUsername] = password;
+      await prefs.setString('registered_users_db', jsonEncode(db));
+
       _isLoggedIn = true;
-      final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('is_logged_in', true);
       await prefs.setString('local_username', cleanUsername);
       await prefs.setString('local_full_name', fullName);
@@ -186,7 +222,7 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = "Ro'yxatdan o'tishda xatolik: ${e.toString()}";
     }
 
     _isLoading = false;

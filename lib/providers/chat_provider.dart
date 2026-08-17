@@ -319,6 +319,14 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  Function(ChatMessage message, ChatConversation conversation)? onIncomingNotification;
+
+  void triggerNotification(ChatMessage message, ChatConversation conversation) {
+    if (_activeChat == null || _activeChat!.id != message.chatId) {
+      onIncomingNotification?.call(message, conversation);
+    }
+  }
+
   void _subscribeToRealtime(String chatId) {
     _realtimeSubscription?.unsubscribe();
     _realtimeSubscription = _supabaseService.subscribeToChatMessages(
@@ -327,7 +335,21 @@ class ChatProvider extends ChangeNotifier {
         if (!_currentMessages.any((m) => m.id == newMsg.id)) {
           _currentMessages.add(newMsg);
           _updateLastMessage(newMsg);
+          _saveMessagesToLocalCache(newMsg.chatId);
           notifyListeners();
+
+          // Trigger top notification banner if outside this chat
+          if (_activeChat == null || _activeChat!.id != newMsg.chatId) {
+            final conv = _conversations.firstWhere(
+              (c) => c.id == newMsg.chatId,
+              orElse: () => ChatConversation(
+                id: newMsg.chatId,
+                name: 'SupaChat User',
+                participants: [],
+              ),
+            );
+            triggerNotification(newMsg, conv);
+          }
         }
       },
     );
