@@ -46,12 +46,16 @@ class AuthProvider extends ChangeNotifier {
     final savedAbout = prefs.getString('local_about');
 
     if (savedUsername != null) {
+      final userAbout = prefs.getString('user_${savedUsername}_about') ?? savedAbout;
+      final userAvatar = prefs.getString('user_${savedUsername}_avatar_url') ?? savedAvatar;
+      final userName = prefs.getString('user_${savedUsername}_full_name') ?? savedName;
+
       _currentUser = UserProfile(
         id: 'user-$savedUsername',
         username: savedUsername,
-        fullName: savedName ?? savedUsername,
-        about: savedAbout ?? _currentUser.about,
-        avatarUrl: savedAvatar,
+        fullName: userName ?? savedUsername,
+        about: userAbout ?? _currentUser.about,
+        avatarUrl: userAvatar,
       );
     }
 
@@ -378,15 +382,20 @@ class AuthProvider extends ChangeNotifier {
       lastSeen: _currentUser.lastSeen,
     );
 
-    // Save to SharedPreferences
+    // Save to SharedPreferences per username & globally
+    final cleanUser = username.trim().toLowerCase();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('local_full_name', fullName);
-    await prefs.setString('local_username', username);
+    await prefs.setString('local_username', cleanUser);
     await prefs.setString('local_about', about);
+    await prefs.setString('user_${cleanUser}_full_name', fullName);
+    await prefs.setString('user_${cleanUser}_about', about);
     if (finalAvatar != null) {
       await prefs.setString('local_avatar_url', finalAvatar);
+      await prefs.setString('user_${cleanUser}_avatar_url', finalAvatar);
     } else {
       await prefs.remove('local_avatar_url');
+      await prefs.remove('user_${cleanUser}_avatar_url');
     }
 
     if (_isSupabaseConnected) {
