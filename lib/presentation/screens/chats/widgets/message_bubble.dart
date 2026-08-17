@@ -196,16 +196,6 @@ class MessageBubble extends StatelessWidget {
             child: Icon(Icons.reply_rounded, size: 18, color: iconColor),
           ),
         ),
-        const SizedBox(width: 2),
-        // 3. Emoji reaction (😊)
-        InkWell(
-          onTap: () => _showMessageOptions(context),
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.all(4),
-            child: Icon(Icons.sentiment_satisfied_alt_outlined, size: 18, color: iconColor),
-          ),
-        ),
       ],
     );
   }
