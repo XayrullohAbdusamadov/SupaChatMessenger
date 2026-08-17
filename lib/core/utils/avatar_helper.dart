@@ -28,23 +28,60 @@ class AvatarHelper {
     Color? backgroundColor,
     Color? iconColor,
   }) {
-    final imageProvider = getImageProvider(avatarUrl);
-    final initial = name.isNotEmpty ? name.trim()[0].toUpperCase() : '?';
+    final initial = name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : '?';
+    final double size = radius * 2;
+    final url = avatarUrl?.trim();
 
-    return CircleAvatar(
-      radius: radius,
-      backgroundColor: backgroundColor ?? Colors.blue.withValues(alpha: 0.15),
-      backgroundImage: imageProvider,
-      child: imageProvider == null
-          ? Text(
-              initial,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: radius * 0.8,
-                color: iconColor ?? Colors.blue,
-              ),
-            )
-          : null,
+    Widget placeholder = Container(
+      width: size,
+      height: size,
+      color: backgroundColor ?? Colors.blue.withValues(alpha: 0.15),
+      child: Center(
+        child: Text(
+          initial,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: radius * 0.85,
+            color: iconColor ?? Colors.blue,
+          ),
+        ),
+      ),
+    );
+
+    if (url == null || url.isEmpty) {
+      return ClipOval(child: placeholder);
+    }
+
+    if (url.startsWith('data:image')) {
+      try {
+        final commaIdx = url.indexOf(',');
+        if (commaIdx != -1) {
+          final base64Str = url.substring(commaIdx + 1);
+          final bytes = base64Decode(base64Str);
+          return ClipOval(
+            child: Image.memory(
+              bytes,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (c, err, stack) => placeholder,
+            ),
+          );
+        }
+      } catch (e) {
+        return ClipOval(child: placeholder);
+      }
+    }
+
+    return ClipOval(
+      child: CachedNetworkImage(
+        imageUrl: url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: (context, url) => placeholder,
+        errorWidget: (context, url, error) => placeholder,
+      ),
     );
   }
 }

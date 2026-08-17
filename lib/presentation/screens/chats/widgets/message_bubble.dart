@@ -207,65 +207,275 @@ class MessageBubble extends StatelessWidget {
   }
 
   void _showMessageOptions(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (ctx) {
-        return SafeArea(
-          child: Wrap(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.reply_rounded, color: AppTheme.primary),
-                title: const Text("Iqtibos bilan javob berish (Reply)"),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  onReply(message);
-                },
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 20,
+                offset: const Offset(0, -4),
               ),
-              if (message.content.isNotEmpty)
-                ListTile(
-                  leading: const Icon(Icons.copy_rounded),
-                  title: const Text("Nusxa olish (Copy)"),
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: message.content));
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("Xabardan nusxa olindi"),
-                        duration: Duration(seconds: 1),
+            ],
+          ),
+          padding: EdgeInsets.only(
+            top: 12,
+            left: 20,
+            right: 20,
+            bottom: MediaQuery.of(ctx).padding.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Top drag indicator handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4.5,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // INSTAGRAM QUICK REACTION EMOJIS BAR
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(
+                    color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: ['❤️', '😂', '😮', '😢', '🙏', '👍'].map((emoji) {
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('$emoji Reaksiya qoldirildi'),
+                            duration: const Duration(seconds: 1),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.all(6),
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 26),
+                        ),
                       ),
                     );
-                  },
+                  }).toList(),
                 ),
-              if (isMe && message.messageType == MessageType.text)
-                ListTile(
-                  leading: const Icon(Icons.edit_rounded),
-                  title: const Text("Tahrirlash (Edit)"),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    onEdit(message);
-                  },
-                ),
-              if (isMe || isGroupOwner || isGroupAdmin)
-                ListTile(
-                  leading: const Icon(Icons.delete_outline_rounded, color: AppTheme.error),
-                  title: Text(
-                    isMe
-                        ? "O'chirish (Delete)"
-                        : (isGroupOwner ? "Egasi sifatida o'chirish" : "Admin sifatida o'chirish"),
-                    style: const TextStyle(color: AppTheme.error),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Message snippet preview
+              if (message.content.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border(
+                      left: BorderSide(
+                        color: isMe ? AppTheme.primary : AppTheme.secondary,
+                        width: 3.5,
+                      ),
+                    ),
                   ),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    onDelete(message);
-                  },
+                  child: Text(
+                    message.content,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
                 ),
+
+              const SizedBox(height: 16),
+
+              // ACTION BUTTONS GRID / LIST (Instagram style cards)
+              Column(
+                children: [
+                  // REPLY
+                  _buildInstagramOptionTile(
+                    context: context,
+                    icon: Icons.reply_rounded,
+                    iconBgColor: AppTheme.primary.withValues(alpha: 0.15),
+                    iconColor: AppTheme.primary,
+                    title: "Javob berish (Reply)",
+                    subtitle: "Xabarga iqtibos bilan javob berish",
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      onReply(message);
+                    },
+                  ),
+
+                  // EDIT (for sender)
+                  if (isMe && message.messageType == MessageType.text) ...[
+                    const SizedBox(height: 8),
+                    _buildInstagramOptionTile(
+                      context: context,
+                      icon: Icons.edit_rounded,
+                      iconBgColor: Colors.amber.withValues(alpha: 0.15),
+                      iconColor: Colors.amber[800]!,
+                      title: "Tahrirlash (Edit)",
+                      subtitle: "Xabar matnini o'zgartirish",
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onEdit(message);
+                      },
+                    ),
+                  ],
+
+                  // COPY
+                  if (message.content.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _buildInstagramOptionTile(
+                      context: context,
+                      icon: Icons.copy_rounded,
+                      iconBgColor: Colors.teal.withValues(alpha: 0.15),
+                      iconColor: Colors.teal,
+                      title: "Nusxa olish (Copy)",
+                      subtitle: "Xabar matnidan nusxa nusxalash",
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: message.content));
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text("Xabardan nusxa olindi 📋"),
+                            duration: const Duration(seconds: 1),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+
+                  // DELETE
+                  if (isMe || isGroupOwner || isGroupAdmin) ...[
+                    const SizedBox(height: 8),
+                    _buildInstagramOptionTile(
+                      context: context,
+                      icon: Icons.delete_outline_rounded,
+                      iconBgColor: AppTheme.error.withValues(alpha: 0.15),
+                      iconColor: AppTheme.error,
+                      title: isMe
+                          ? "O'chirish (Delete)"
+                          : (isGroupOwner ? "Egasi sifatida o'chirish" : "Admin sifatida o'chirish"),
+                      subtitle: "Xabarni suhbatdan o'chirib tashlash",
+                      isDestructive: true,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onDelete(message);
+                      },
+                    ),
+                  ],
+                ],
+              ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildInstagramOptionTile({
+    required BuildContext context,
+    required IconData icon,
+    required Color iconBgColor,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    bool isDestructive = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: iconBgColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: isDestructive
+                            ? AppTheme.error
+                            : (isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: isDark ? Colors.white30 : Colors.black26,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
