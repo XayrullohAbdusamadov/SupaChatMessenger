@@ -172,14 +172,24 @@ class AuthProvider extends ChangeNotifier {
       final dbJson = prefs.getString('registered_users_db') ?? '{}';
       final Map<String, dynamic> db = jsonDecode(dbJson);
 
+      // Check if username is already registered locally
       if (db.containsKey(cleanUsername)) {
-        _errorMessage = "Ushbu username allaqachon band qilingan! Boshqa username kiriting.";
+        _errorMessage = "Ushbu username ('$cleanUsername') allaqachon ro'yxatdan o'tgan! Boshqa username tanlang yoki Kirish bo'limidan kiring.";
         _isLoading = false;
         notifyListeners();
         return false;
       }
 
       if (_isSupabaseConnected) {
+        // Check if profile exists in Supabase
+        final existingProfile = await _supabaseService.fetchProfile('user-$cleanUsername');
+        if (existingProfile != null) {
+          _errorMessage = "Ushbu username Supabaseda allaqachon mavjud!";
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+
         final email = '$cleanUsername@supachat.local';
         final response = await _supabaseService.signUpWithEmail(
           email,
@@ -192,31 +202,32 @@ class AuthProvider extends ChangeNotifier {
           id: userId,
           username: cleanUsername,
           fullName: fullName,
-          about: about,
+          about: about.isNotEmpty ? about : 'Hey there! I am using SupaChat.',
         );
         await _supabaseService.updateProfile(_currentUser);
       } else {
-        // Offline registration
+        // Local Registration Mode
         await Future.delayed(const Duration(milliseconds: 500));
         _currentUser = UserProfile(
           id: 'user-$cleanUsername',
           username: cleanUsername,
-          fullName: fullName,
-          about: about,
+          fullName: fullName.isNotEmpty ? fullName : cleanUsername,
+          about: about.isNotEmpty ? about : 'Hey there! I am using SupaChat.',
         );
       }
 
-      // Save credentials into persistent user database
+      // Save credentials to local database
       db[cleanUsername] = password;
       await prefs.setString('registered_users_db', jsonEncode(db));
 
+      // Persist active session
       _isLoggedIn = true;
       await prefs.setBool('is_logged_in', true);
       await prefs.setString('local_username', cleanUsername);
-      await prefs.setString('local_full_name', fullName);
-      await prefs.setString('local_about', about);
-      await prefs.setString('user_${cleanUsername}_full_name', fullName);
-      await prefs.setString('user_${cleanUsername}_about', about);
+      await prefs.setString('local_full_name', _currentUser.fullName);
+      await prefs.setString('local_about', _currentUser.about);
+      await prefs.setString('user_${cleanUsername}_full_name', _currentUser.fullName);
+      await prefs.setString('user_${cleanUsername}_about', _currentUser.about);
 
       _isLoading = false;
       notifyListeners();
