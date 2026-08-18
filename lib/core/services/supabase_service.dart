@@ -520,10 +520,63 @@ class SupabaseService {
           if (profile != null) participants.add(profile);
         }
 
-        conversations.add(ChatConversation.fromJson(
-          chatRow,
+        // Fetch latest message from messages table to get exact latest content, sender, and time
+        String? lastText = chatRow['last_message_text'] as String?;
+        String? lastTypeStr = chatRow['last_message_type'] as String?;
+        String? lastSenderId = chatRow['last_message_sender_id'] as String?;
+        DateTime lastAt = chatRow['last_message_at'] != null
+            ? DateTime.tryParse(chatRow['last_message_at'].toString()) ?? DateTime.now()
+            : DateTime.now();
+
+        try {
+          final lastMsgRes = await _client!
+              .from('messages')
+              .select('content, message_type, sender_id, file_name, voice_duration, created_at')
+              .eq('chat_id', chatId)
+              .order('created_at', ascending: false)
+              .limit(1)
+              .maybeSingle();
+
+          if (lastMsgRes != null) {
+            final c = lastMsgRes['content'] as String?;
+            final mType = lastMsgRes['message_type'] as String?;
+            if (mType == 'image') {
+              lastText = '📷 Rasm';
+            } else if (mType == 'video') {
+              lastText = '🎥 Video';
+            } else if (mType == 'voice') {
+              lastText = '🎤 Ovozli xabar';
+            } else if (mType == 'doc') {
+              lastText = '📄 ${lastMsgRes['file_name'] ?? "Hujjat"}';
+            } else {
+              lastText = c;
+            }
+            lastTypeStr = mType ?? lastTypeStr;
+            lastSenderId = lastMsgRes['sender_id'] as String? ?? lastSenderId;
+            if (lastMsgRes['created_at'] != null) {
+              lastAt = DateTime.tryParse(lastMsgRes['created_at'].toString()) ?? lastAt;
+            }
+          }
+        } catch (_) {}
+
+        conversations.add(ChatConversation(
+          id: chatId,
+          isGroup: chatRow['is_group'] as bool? ?? false,
+          name: chatRow['group_name'] as String? ?? 'Chat',
+          avatarUrl: chatRow['group_avatar'] as String?,
+          createdBy: chatRow['created_by'] as String?,
+          adminIds: (chatRow['admin_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+          blockedMemberIds: (chatRow['blocked_member_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
           participants: participants,
-        ).copyWith(
+          lastMessageText: lastText,
+          lastMessageType: lastTypeStr != null
+              ? MessageType.values.firstWhere(
+                  (e) => e.name == lastTypeStr,
+                  orElse: () => MessageType.text,
+                )
+              : null,
+          lastMessageSenderId: lastSenderId,
+          lastMessageAt: lastAt,
           unreadCount: unreadMap[chatId] ?? 0,
         ));
       }

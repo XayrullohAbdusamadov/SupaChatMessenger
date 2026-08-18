@@ -184,6 +184,35 @@ class ChatProvider extends ChangeNotifier {
       } else {
         _conversations = [];
       }
+
+      // Reconcile and populate real last message details from cached message store
+      for (int i = 0; i < _conversations.length; i++) {
+        final conv = _conversations[i];
+        final cached = await _loadCachedMessagesForChat(conv.id);
+        if (cached.isNotEmpty) {
+          final lastMsg = cached.last;
+          String preview = lastMsg.content;
+          if (lastMsg.messageType == MessageType.image) preview = '📷 Rasm';
+          if (lastMsg.messageType == MessageType.video) preview = '🎥 Video';
+          if (lastMsg.messageType == MessageType.voice) preview = '🎤 Ovoz (${lastMsg.voiceDuration ?? 10}s)';
+          if (lastMsg.messageType == MessageType.doc) preview = '📄 ${lastMsg.fileName ?? "Hujjat"}';
+
+          _conversations[i] = conv.copyWith(
+            lastMessageText: preview,
+            lastMessageType: lastMsg.messageType,
+            lastMessageSenderId: lastMsg.senderId,
+            lastMessageAt: lastMsg.createdAt,
+          );
+        } else if (conv.lastMessageText == 'Hey there! I am using SupaChat.' || conv.lastMessageText == 'Eslatmalar va fayllar joyi') {
+          if (conv.id.startsWith('saved_messages')) {
+            _conversations[i] = conv.copyWith(lastMessageText: 'Eslatmalar va fayllar joyi');
+          } else {
+            _conversations[i] = conv.copyWith(lastMessageText: null, lastMessageSenderId: null);
+          }
+        }
+      }
+      _conversations.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+      await _saveConversations();
     } catch (e) {
       debugPrint('Error loading saved conversations for user $userId: $e');
       _conversations = [];
@@ -538,6 +567,7 @@ class ChatProvider extends ChangeNotifier {
       final fetched = await _supabaseService.fetchMessages(conversation.id);
       if (fetched.isNotEmpty) {
         _currentMessages = fetched;
+        _updateLastMessage(fetched.last);
         await _saveMessagesToLocalCache(conversation.id);
         notifyListeners();
       }
@@ -1055,8 +1085,8 @@ class ChatProvider extends ChangeNotifier {
   }
 
   void _updateLastMessage(ChatMessage msg) {
-    if (_activeChat == null) return;
-    final idx = _conversations.indexWhere((c) => c.id == _activeChat!.id);
+    final chatId = msg.chatId;
+    final idx = _conversations.indexWhere((c) => c.id == chatId);
     if (idx != -1) {
       String preview = msg.content;
       if (msg.messageType == MessageType.image) preview = '📷 Rasm';
@@ -1070,7 +1100,9 @@ class ChatProvider extends ChangeNotifier {
         lastMessageSenderId: msg.senderId,
         lastMessageAt: msg.createdAt,
       );
+      _conversations.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
       _saveConversations();
+      notifyListeners();
     }
   }
 
@@ -1222,8 +1254,9 @@ class ChatProvider extends ChangeNotifier {
       name: contact.fullName,
       avatarUrl: contact.avatarUrl,
       participants: currentUser != null ? [currentUser, contact] : [contact],
-      lastMessageText: contact.about,
+      lastMessageText: null,
       lastMessageType: MessageType.text,
+      lastMessageSenderId: null,
       lastMessageAt: DateTime.now(),
       unreadCount: 0,
     );

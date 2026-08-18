@@ -75,13 +75,16 @@ class AuthProvider extends ChangeNotifier {
       debugPrint('Error cleaning mock bots: $e');
     }
 
+    final savedUserId = prefs.getString('local_user_id');
     if (savedUsername != null) {
       final userAbout = prefs.getString('user_${savedUsername}_about') ?? savedAbout;
       final userAvatar = prefs.getString('user_${savedUsername}_avatar_url') ?? savedAvatar;
       final userName = prefs.getString('user_${savedUsername}_full_name') ?? savedName;
 
+      final deterministicId = savedUserId ?? const Uuid().v5(Namespace.url.value, 'supachat:user:$savedUsername');
+
       _currentUser = UserProfile(
-        id: 'user-$savedUsername',
+        id: deterministicId,
         username: savedUsername,
         fullName: userName ?? savedUsername,
         about: userAbout ?? _currentUser.about,
@@ -200,6 +203,7 @@ class AuthProvider extends ChangeNotifier {
 
       _isLoggedIn = true;
       await prefs.setBool('is_logged_in', true);
+      await prefs.setString('local_user_id', _currentUser.id);
       await prefs.setString('local_username', cleanUsername);
       await prefs.setString('local_full_name', _currentUser.fullName);
       await prefs.setString('local_about', _currentUser.about);
@@ -285,6 +289,7 @@ class AuthProvider extends ChangeNotifier {
       // Persist active session
       _isLoggedIn = true;
       await prefs.setBool('is_logged_in', true);
+      await prefs.setString('local_user_id', _currentUser.id);
       await prefs.setString('local_username', cleanUsername);
       await prefs.setString('local_full_name', _currentUser.fullName);
       await prefs.setString('local_about', _currentUser.about);
@@ -307,6 +312,8 @@ class AuthProvider extends ChangeNotifier {
     _isLoggedIn = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_logged_in', false);
+    await prefs.remove('local_user_id');
+    await prefs.remove('local_username');
     if (_isSupabaseConnected) {
       await _supabaseService.signOut();
     }

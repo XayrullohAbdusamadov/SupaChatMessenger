@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/avatar_helper.dart';
 import '../../../data/models/chat_conversation.dart';
@@ -53,6 +54,34 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  bool _isMessageFromMe(String senderId, UserProfile currentUser) {
+    final cleanSender = senderId.trim().toLowerCase();
+    final myId = currentUser.id.trim().toLowerCase();
+    final myUsername = currentUser.username.trim().toLowerCase();
+
+    // 1. Direct ID match
+    if (myId.isNotEmpty && cleanSender == myId) return true;
+
+    // 2. Direct username match
+    if (myUsername.isNotEmpty && cleanSender == myUsername) return true;
+
+    // 3. Normalized "user-xxx" prefix match
+    final senderNoPrefix = cleanSender.replaceAll('user-', '');
+    final myIdNoPrefix = myId.replaceAll('user-', '');
+    if (myUsername.isNotEmpty && senderNoPrefix == myUsername) return true;
+    if (myIdNoPrefix.isNotEmpty && senderNoPrefix == myIdNoPrefix) return true;
+
+    // 4. Deterministic UUID v5 check for my username
+    if (myUsername.isNotEmpty) {
+      try {
+        final expectedUuid = const Uuid().v5(Namespace.url.value, 'supachat:user:$myUsername').toLowerCase();
+        if (cleanSender == expectedUuid) return true;
+      } catch (_) {}
+    }
+
+    return false;
   }
 
   // 1. NATIVE VOICE CALL HANDLER
@@ -700,13 +729,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 }
 
                 final msg = messages[index - 1];
-                final isMe = msg.senderId == currentUserId;
+                final isMe = _isMessageFromMe(msg.senderId, authProvider.currentUser);
 
                 UserProfile? senderProfile;
                 if (!isMe && activeConv.isGroup) {
                   try {
                     senderProfile = activeConv.participants.firstWhere(
-                      (p) => p.id == msg.senderId,
+                      (p) => p.id == msg.senderId || p.username.toLowerCase() == msg.senderId.replaceAll('user-', '').toLowerCase(),
                       orElse: () => UserProfile(
                         id: msg.senderId,
                         username: 'user',

@@ -335,20 +335,42 @@ class _ChatListItemState extends State<ChatListItem>
       );
     }
 
+    final rawText = widget.conversation.lastMessageText;
+    if (rawText == null || rawText.trim().isEmpty) {
+      return Text(
+        'Yangi suhbat',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 13,
+          fontStyle: FontStyle.italic,
+          color: isDark
+              ? AppTheme.textDarkSecondary.withValues(alpha: 0.55)
+              : AppTheme.textLightSecondary.withValues(alpha: 0.55),
+        ),
+      );
+    }
+
     // Determine if current user sent the last message
     final senderId = widget.conversation.lastMessageSenderId;
-    final isMine = senderId != null &&
-        widget.currentUserId != null &&
-        (senderId == widget.currentUserId ||
-            (widget.currentUsername != null &&
-                senderId.replaceAll('user-', '').toLowerCase() ==
-                    widget.currentUsername!.toLowerCase()));
+    bool isMine = false;
+    if (senderId != null) {
+      final myId = widget.currentUserId?.toLowerCase();
+      final myUsername = widget.currentUsername?.toLowerCase();
+      final cleanSender = senderId.replaceAll('user-', '').toLowerCase();
+
+      if (myId != null && (senderId.toLowerCase() == myId || cleanSender == myId.replaceAll('user-', ''))) {
+        isMine = true;
+      } else if (myUsername != null && (cleanSender == myUsername || senderId.toLowerCase() == 'user-$myUsername')) {
+        isMine = true;
+      }
+    }
 
     final preview = _resolvePreview();
     final subtitleColor = hasUnread
         ? (isDark
-            ? AppTheme.textDarkPrimary.withValues(alpha: 0.85)
-            : AppTheme.textLightPrimary.withValues(alpha: 0.75))
+            ? AppTheme.textDarkPrimary.withValues(alpha: 0.9)
+            : AppTheme.textLightPrimary.withValues(alpha: 0.85))
         : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary);
     final subtitleWeight =
         hasUnread ? FontWeight.w600 : FontWeight.w400;
@@ -366,8 +388,8 @@ class _ChatListItemState extends State<ChatListItem>
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: isDark
-                    ? AppTheme.primary.withValues(alpha: 0.85)
-                    : AppTheme.primary.withValues(alpha: 0.9),
+                    ? AppTheme.primaryLight
+                    : AppTheme.primary,
               ),
             ),
             TextSpan(

@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS public.chats (
     blocked_member_ids TEXT[] DEFAULT '{}',
     last_message_text TEXT,
     last_message_type VARCHAR(20) DEFAULT 'text',
+    last_message_sender_id TEXT,
     last_message_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -50,6 +51,7 @@ ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS admin_ids TEXT[] DEFAULT '{}';
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS blocked_member_ids TEXT[] DEFAULT '{}';
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS last_message_text TEXT;
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS last_message_type VARCHAR(20) DEFAULT 'text';
+ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS last_message_sender_id TEXT;
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMPTZ DEFAULT NOW();
 
 -- 4. CHAT ISHTIROKCHILARI JADVALI (chat_participants)
@@ -142,11 +144,12 @@ BEGIN
   END IF;
 
   -- 1. Suhbat mavjudligini ta'minlash yoki yangilash
-  INSERT INTO public.chats (id, is_group, created_by, last_message_text, last_message_type, last_message_at)
-  VALUES (NEW.chat_id, false, NEW.sender_id, v_preview, NEW.message_type, NEW.created_at)
+  INSERT INTO public.chats (id, is_group, created_by, last_message_text, last_message_type, last_message_sender_id, last_message_at)
+  VALUES (NEW.chat_id, false, NEW.sender_id, v_preview, NEW.message_type, NEW.sender_id, NEW.created_at)
   ON CONFLICT (id) DO UPDATE SET
     last_message_text = v_preview,
     last_message_type = NEW.message_type,
+    last_message_sender_id = NEW.sender_id,
     last_message_at = NEW.created_at;
 
   -- 2. Yuboruvchini ishtirokchi sifatida qo'shish
