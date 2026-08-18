@@ -249,12 +249,32 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                     child: Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24.0),
-                        child: Text(
-                          'Ushbu username bo\'yicha akkaunt topilmadi',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
-                          ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.search_off_rounded,
+                              size: 48,
+                              color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Foydalanuvchi topilmadi',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Ushbu username bo\'yicha akkaunt mavjud emas',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),

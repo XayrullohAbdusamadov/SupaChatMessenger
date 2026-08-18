@@ -152,14 +152,33 @@ class _ContactsScreenState extends State<ContactsScreen> {
               )
             else if (chatProvider.sqlSearchResults.isEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: const EdgeInsets.symmetric(vertical: 24),
                 child: Center(
-                  child: Text(
-                    'Ushbu username bo\'yicha akkaunt topilmadi',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
-                    ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.search_off_rounded,
+                        size: 40,
+                        color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Foydalanuvchi topilmadi',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Ushbu username bo\'yicha akkaunt mavjud emas',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               )

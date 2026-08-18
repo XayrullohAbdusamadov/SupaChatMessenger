@@ -251,23 +251,6 @@ class ChatProvider extends ChangeNotifier {
       }
     }
 
-    // 4. Always provide an account card for cleanQuery with profile picture if saved locally
-    if (!results.any((r) => r.username.toLowerCase() == cleanQuery)) {
-      String? savedAvatar;
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        savedAvatar = prefs.getString('user_${cleanQuery}_avatar_url');
-      } catch (_) {}
-
-      results.add(UserProfile(
-        id: 'user-$cleanQuery',
-        username: cleanQuery,
-        fullName: '@$cleanQuery',
-        avatarUrl: savedAvatar,
-        about: 'SupaChat foydalanuvchisi',
-      ));
-    }
-
     // Filter out current user's own account from username search results
     if (currentUsername != null && currentUsername.isNotEmpty) {
       results.removeWhere((r) => r.username.toLowerCase() == currentUsername.toLowerCase() && r.id != 'saved_messages_self');
@@ -705,7 +688,6 @@ class ChatProvider extends ChangeNotifier {
     if (_supabaseService.isInitialized) {
       await _supabaseService.sendMessage(newMsg);
     }
-    // NOTE: Auto-simulated bot replies have been completely removed per user request!
   }
 
   void _updateLastMessage(ChatMessage msg) {
