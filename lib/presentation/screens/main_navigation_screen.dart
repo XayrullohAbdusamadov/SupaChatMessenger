@@ -35,7 +35,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       final chatProvider = context.read<ChatProvider>();
       chatProvider.onIncomingNotification = _showTopNotificationBanner;
       if (authProvider.currentUser.id.isNotEmpty) {
-        chatProvider.loadUserData(authProvider.currentUser.id);
+        chatProvider.loadUserData(authProvider.currentUser.id, username: authProvider.currentUser.username);
       }
     });
   }
@@ -156,49 +156,60 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final totalUnread = context.watch<ChatProvider>().totalUnreadCount;
 
     return Scaffold(
       body: IndexedStack(
-        index: _currentIndex >= _screens.length ? 0 : _currentIndex,
+        index: _currentIndex,
         children: _screens,
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+          color: isDark ? AppTheme.surfaceDark : Colors.white,
           border: Border(
             top: BorderSide(
               color: isDark ? AppTheme.borderDark : AppTheme.borderLight,
-              width: 1,
+              width: 0.5,
             ),
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
+            ),
+          ],
         ),
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
         child: SafeArea(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildNavItem(
-                index: 0,
-                icon: Icons.chat_bubble_rounded,
-                unselectedIcon: Icons.chat_bubble_outline_rounded,
-                label: 'Chats',
-                isDark: isDark,
-              ),
-              _buildNavItem(
-                index: 1,
-                icon: Icons.people_rounded,
-                unselectedIcon: Icons.people_outline_rounded,
-                label: 'Contacts',
-                isDark: isDark,
-              ),
-              _buildNavItem(
-                index: 2,
-                icon: Icons.person_rounded,
-                unselectedIcon: Icons.person_outline_rounded,
-                label: 'Profile',
-                isDark: isDark,
-              ),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildNavItem(
+                  index: 0,
+                  icon: Icons.chat_bubble_rounded,
+                  unselectedIcon: Icons.chat_bubble_outline_rounded,
+                  label: 'Chats',
+                  badgeCount: totalUnread,
+                  isDark: isDark,
+                ),
+                _buildNavItem(
+                  index: 1,
+                  icon: Icons.people_rounded,
+                  unselectedIcon: Icons.people_outline_rounded,
+                  label: 'Contacts',
+                  isDark: isDark,
+                ),
+                _buildNavItem(
+                  index: 2,
+                  icon: Icons.person_rounded,
+                  unselectedIcon: Icons.person_outline_rounded,
+                  label: 'Profile',
+                  isDark: isDark,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -210,6 +221,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     required IconData icon,
     required IconData unselectedIcon,
     required String label,
+    int badgeCount = 0,
     required bool isDark,
   }) {
     final isSelected = _currentIndex == index;
@@ -233,12 +245,44 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              isSelected ? icon : unselectedIcon,
-              color: isSelected
-                  ? AppTheme.primary
-                  : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
-              size: 24,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  isSelected ? icon : unselectedIcon,
+                  color: isSelected
+                      ? AppTheme.primary
+                      : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
+                  size: 24,
+                ),
+                if (badgeCount > 0)
+                  Positioned(
+                    top: -4,
+                    right: -8,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        gradient: AppTheme.primaryGradient,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isDark ? AppTheme.surfaceDark : Colors.white,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          badgeCount > 99 ? '99+' : '$badgeCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 3),
             Text(

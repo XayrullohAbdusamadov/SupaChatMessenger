@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -31,12 +32,15 @@ class ChatProvider extends ChangeNotifier {
   String _searchQuery = '';
   final bool _isLoading = false;
   RealtimeChannel? _realtimeSubscription;
+  Timer? _periodicSyncTimer;
 
   // Audio voice note player
   AudioPlayer? _audioPlayer;
   String? _currentlyPlayingVoiceMsgId;
   bool _isVoicePlaying = false;
   double _voiceProgress = 0.0;
+
+  int get totalUnreadCount => _conversations.fold(0, (sum, c) => sum + c.unreadCount);
 
   List<ChatConversation> get conversations {
     if (_searchQuery.isEmpty) {
@@ -85,18 +89,22 @@ class ChatProvider extends ChangeNotifier {
   double get voiceProgress => _voiceProgress;
 
   String? _currentActiveUserId;
+  String? _currentActiveUsername;
 
   ChatProvider() {
     _initAudioPlayer();
   }
 
-  Future<void> loadUserData(String userId) async {
+  Future<void> loadUserData(String userId, {String? username}) async {
     if (userId.isEmpty) return;
     _currentActiveUserId = userId;
+
+    final prefs = await SharedPreferences.getInstance();
+    _currentActiveUsername = username ?? prefs.getString('local_username');
+
     await _loadSavedConversations(userId);
     await _loadRecentSearches(userId);
 
-    final prefs = await SharedPreferences.getInstance();
     final savedBlocked = prefs.getStringList('blocked_user_ids_$userId') ?? [];
     _blockedUserIds.clear();
     _blockedUserIds.addAll(savedBlocked);
@@ -106,11 +114,37 @@ class ChatProvider extends ChangeNotifier {
     _viewedStoryIds.addAll(savedViewed);
 
     initGlobalRealtime(userId);
+    _startPeriodicSync();
     notifyListeners();
   }
 
+  void _startPeriodicSync() {
+    _periodicSyncTimer?.cancel();
+    _periodicSyncTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _syncBackgroundMessages();
+    });
+  }
+
+  Future<void> _syncBackgroundMessages() async {
+    if (!_supabaseService.isInitialized || _currentActiveUserId == null) return;
+    try {
+      if (_activeChat != null) {
+        final fetched = await _supabaseService.fetchMessages(_activeChat!.id);
+        if (fetched.isNotEmpty && (fetched.length != _currentMessages.length || fetched.last.id != _currentMessages.lastOrNull?.id)) {
+          _currentMessages = fetched;
+          _updateLastMessage(fetched.last);
+          _saveMessagesToLocalCache(_activeChat!.id);
+          notifyListeners();
+        }
+      }
+    } catch (_) {}
+  }
+
   void clearUserData() {
+    _periodicSyncTimer?.cancel();
+    _periodicSyncTimer = null;
     _currentActiveUserId = null;
+    _currentActiveUsername = null;
     _conversations = [];
     _currentMessages = [];
     _activeChat = null;
@@ -122,6 +156,7 @@ class ChatProvider extends ChangeNotifier {
     _realtimeSubscription?.unsubscribe();
     _realtimeSubscription = null;
     _audioPlayer?.stop();
+    SoundService.instance.stopVoicePlayback();
     _isVoicePlaying = false;
     _currentlyPlayingVoiceMsgId = null;
     notifyListeners();
@@ -559,12 +594,25 @@ class ChatProvider extends ChangeNotifier {
         // If message was sent by ourselves, ignore
         if (newMsg.senderId == currentUserId) return;
 
+        // Fetch sender's profile
+        UserProfile? senderProfile;
+        if (_supabaseService.isInitialized) {
+          senderProfile = await _supabaseService.fetchProfile(newMsg.senderId);
+        }
+
         // Strictly verify that this message is meant for currentUserId
         bool isMyChat = false;
         final convIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
         if (convIdx != -1) {
           isMyChat = true;
-        } else if (_supabaseService.isInitialized) {
+        } else if (senderProfile != null && _currentActiveUsername != null) {
+          final sorted = [_currentActiveUsername!.toLowerCase(), senderProfile.username.toLowerCase()]..sort();
+          final expectedChatId = _uuid.v5(Namespace.url.value, 'supachat:direct:${sorted.join(':')}');
+          if (newMsg.chatId == expectedChatId) {
+            isMyChat = true;
+          }
+        }
+        if (!isMyChat && _supabaseService.isInitialized) {
           isMyChat = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId);
         }
 
@@ -581,12 +629,6 @@ class ChatProvider extends ChangeNotifier {
             notifyListeners();
           }
           return;
-        }
-
-        // Fetch sender's profile
-        UserProfile? senderProfile;
-        if (_supabaseService.isInitialized) {
-          senderProfile = await _supabaseService.fetchProfile(newMsg.senderId);
         }
 
         // If chat is NOT currently open: update conversation list and show floating notification banner
@@ -934,6 +976,7 @@ class ChatProvider extends ChangeNotifier {
   Future<void> togglePlayVoice(String msgId, int durationSeconds) async {
     if (_currentlyPlayingVoiceMsgId == msgId && _isVoicePlaying) {
       await _audioPlayer?.pause();
+      await SoundService.instance.stopVoicePlayback();
       _isVoicePlaying = false;
       notifyListeners();
       return;
@@ -947,6 +990,7 @@ class ChatProvider extends ChangeNotifier {
     }
 
     await _audioPlayer?.stop();
+    await SoundService.instance.stopVoicePlayback();
     _currentlyPlayingVoiceMsgId = msgId;
     _isVoicePlaying = true;
     _voiceProgress = 0.0;
@@ -967,9 +1011,11 @@ class ChatProvider extends ChangeNotifier {
       if (msg.mediaUrl != null && msg.mediaUrl!.startsWith('http')) {
         await _audioPlayer!.play(UrlSource(msg.mediaUrl!));
       } else {
+        await SoundService.instance.playVoiceTone(durationSeconds);
         _simulateVoiceProgress(msgId, durationSeconds);
       }
     } catch (e) {
+      await SoundService.instance.playVoiceTone(durationSeconds);
       _simulateVoiceProgress(msgId, durationSeconds);
     }
   }

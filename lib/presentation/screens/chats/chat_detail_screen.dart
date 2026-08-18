@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -225,6 +226,241 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
+  void _showUserProfileModal(BuildContext context, UserProfile contact, ChatConversation conversation) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final chatProvider = context.read<ChatProvider>();
+    final isBlocked = !conversation.isGroup && chatProvider.isUserBlocked(contact.id);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 24,
+                offset: const Offset(0, -6),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4.5,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // BIG AVATAR
+              Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  Container(
+                    width: 96,
+                    height: 96,
+                    decoration: const BoxDecoration(shape: BoxShape.circle),
+                    child: ClipOval(
+                      child: AvatarHelper.buildAvatarWidget(
+                        avatarUrl: contact.avatarUrl,
+                        name: contact.fullName,
+                        radius: 48,
+                      ),
+                    ),
+                  ),
+                  if (contact.isOnline)
+                    Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: AppTheme.tertiary,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                          width: 3.5,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // NAME & USERNAME
+              Text(
+                contact.fullName.isNotEmpty ? contact.fullName : contact.username,
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '@${contact.username}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: '@${contact.username}'));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('@${contact.username} nusxalandi! 📋'),
+                          duration: const Duration(seconds: 1),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      );
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.all(2.0),
+                      child: Icon(Icons.copy_rounded, size: 15, color: AppTheme.primary),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // BIO / ABOUT CARD
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Bio / Ma\'lumot',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      contact.about.isNotEmpty ? contact.about : 'Hey there! I am using SupaChat.',
+                      style: const TextStyle(fontSize: 14, height: 1.3),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // ACTION BUTTONS
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildProfileActionButton(
+                    icon: Icons.phone_rounded,
+                    label: "Qo'ng'iroq",
+                    color: Colors.green,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _makeNativePhoneCall(contact);
+                    },
+                  ),
+                  _buildProfileActionButton(
+                    icon: Icons.videocam_rounded,
+                    label: 'Video',
+                    color: AppTheme.primary,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _startVideoCall(contact);
+                    },
+                  ),
+                  _buildProfileActionButton(
+                    icon: Icons.perm_media_rounded,
+                    label: 'Media',
+                    color: Colors.amber[800]!,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showMediaGallery();
+                    },
+                  ),
+                  _buildProfileActionButton(
+                    icon: isBlocked ? Icons.lock_open_rounded : Icons.block_rounded,
+                    label: isBlocked ? 'Ochish' : 'Bloklash',
+                    color: isBlocked ? AppTheme.tertiary : AppTheme.error,
+                    onTap: () {
+                      chatProvider.toggleBlockUser(contact.id);
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(isBlocked ? 'Foydalanuvchi blokdan chiqarildi' : 'Foydalanuvchi bloklandi'),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProfileActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
@@ -265,69 +501,76 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Navigator.pop(context);
           },
         ),
-        title: Row(
-          children: [
-            // AVATAR
-            Stack(
+        title: InkWell(
+          onTap: () => _showUserProfileModal(context, contact, activeConv),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+            child: Row(
               children: [
-                AvatarHelper.buildAvatarWidget(
-                  avatarUrl: displayAvatar,
-                  name: displayName,
-                  radius: 19,
-                ),
-                if (isOnline)
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: AppTheme.tertiary,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-                          width: 1.5,
+                // AVATAR
+                Stack(
+                  children: [
+                    AvatarHelper.buildAvatarWidget(
+                      avatarUrl: displayAvatar,
+                      name: displayName,
+                      radius: 19,
+                    ),
+                    if (isOnline)
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: AppTheme.tertiary,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+                              width: 1.5,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                  ],
+                ),
+                const SizedBox(width: 10),
+
+                // NAME & STATUS
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        isBlocked
+                            ? 'Bloklangan'
+                            : (activeConv.isTyping
+                                ? 'Yozmoqda...'
+                                : (activeConv.isGroup
+                                    ? '${activeConv.participants.length} ta a\'zo'
+                                    : (isOnline ? 'Online' : 'Yaqinda ko\'rilgan'))),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isBlocked
+                              ? AppTheme.error
+                              : (activeConv.isTyping
+                                  ? AppTheme.primary
+                                  : (isOnline ? AppTheme.tertiary : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary))),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
               ],
             ),
-            const SizedBox(width: 10),
-
-            // NAME & STATUS
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                  Text(
-                    isBlocked
-                        ? 'Bloklangan'
-                        : (activeConv.isTyping
-                            ? 'Yozmoqda...'
-                            : (activeConv.isGroup
-                                ? '${activeConv.participants.length} ta a\'zo'
-                                : (isOnline ? 'Online' : 'Yaqinda ko\'rilgan'))),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isBlocked
-                          ? AppTheme.error
-                          : (activeConv.isTyping
-                              ? AppTheme.primary
-                              : (isOnline ? AppTheme.tertiary : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary))),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
         actions: [
           // Video Call Icon -> Full screen interactive video call / offline check
