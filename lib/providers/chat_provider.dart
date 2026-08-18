@@ -694,6 +694,7 @@ class ChatProvider extends ChangeNotifier {
         participants: updatedParticipants,
         lastMessageText: newMsg.content.isNotEmpty ? newMsg.content : 'Media xabar',
         lastMessageType: newMsg.messageType,
+        lastMessageSenderId: newMsg.senderId,
         lastMessageAt: newMsg.createdAt,
         unreadCount: alreadyExists ? existing.unreadCount : (existing.unreadCount + 1),
       );
@@ -710,6 +711,7 @@ class ChatProvider extends ChangeNotifier {
         participants: [senderProfile],
         lastMessageText: newMsg.content.isNotEmpty ? newMsg.content : 'Media xabar',
         lastMessageType: newMsg.messageType,
+        lastMessageSenderId: newMsg.senderId,
         lastMessageAt: newMsg.createdAt,
         unreadCount: 1,
       );
@@ -1065,6 +1067,7 @@ class ChatProvider extends ChangeNotifier {
       _conversations[idx] = _conversations[idx].copyWith(
         lastMessageText: preview,
         lastMessageType: msg.messageType,
+        lastMessageSenderId: msg.senderId,
         lastMessageAt: msg.createdAt,
       );
       _saveConversations();

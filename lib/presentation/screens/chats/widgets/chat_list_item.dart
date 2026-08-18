@@ -335,30 +335,70 @@ class _ChatListItemState extends State<ChatListItem>
       );
     }
 
-    // Last message preview with media icons
-    final raw = widget.conversation.lastMessageText ?? '';
-    final preview = _resolvePreview(raw);
+    // Determine if current user sent the last message
+    final senderId = widget.conversation.lastMessageSenderId;
+    final isMine = senderId != null &&
+        widget.currentUserId != null &&
+        (senderId == widget.currentUserId ||
+            (widget.currentUsername != null &&
+                senderId.replaceAll('user-', '').toLowerCase() ==
+                    widget.currentUsername!.toLowerCase()));
 
+    final preview = _resolvePreview();
+    final subtitleColor = hasUnread
+        ? (isDark
+            ? AppTheme.textDarkPrimary.withValues(alpha: 0.85)
+            : AppTheme.textLightPrimary.withValues(alpha: 0.75))
+        : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary);
+    final subtitleWeight =
+        hasUnread ? FontWeight.w600 : FontWeight.w400;
+
+    if (isMine) {
+      // "Siz: [preview]"
+      return RichText(
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: 'Siz: ',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: isDark
+                    ? AppTheme.primary.withValues(alpha: 0.85)
+                    : AppTheme.primary.withValues(alpha: 0.9),
+              ),
+            ),
+            TextSpan(
+              text: preview,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: subtitleWeight,
+                color: subtitleColor,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Other person's message — plain preview
     return Text(
       preview,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: 13,
-        fontWeight: hasUnread ? FontWeight.w600 : FontWeight.w400,
-        color: hasUnread
-            ? (isDark
-                ? AppTheme.textDarkPrimary.withValues(alpha: 0.85)
-                : AppTheme.textLightPrimary.withValues(alpha: 0.75))
-            : (isDark
-                ? AppTheme.textDarkSecondary
-                : AppTheme.textLightSecondary),
+        fontWeight: subtitleWeight,
+        color: subtitleColor,
       ),
     );
   }
 
-  String _resolvePreview(String raw) {
+  String _resolvePreview() {
     final type = widget.conversation.lastMessageType;
+    final raw = widget.conversation.lastMessageText ?? '';
     if (type == MessageType.image && !raw.startsWith('📷')) return '📷 Rasm';
     if (type == MessageType.video && !raw.startsWith('🎥')) return '🎥 Video';
     if (type == MessageType.voice && !raw.startsWith('🎤')) return '🎤 Ovozli xabar';

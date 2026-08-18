@@ -13,6 +13,7 @@ class ChatConversation {
   final ChatMessage? lastMessage;
   final String? lastMessageText;
   final MessageType? lastMessageType;
+  final String? lastMessageSenderId;
   final DateTime lastMessageAt;
   final int unreadCount;
   final bool isTyping;
@@ -31,6 +32,7 @@ class ChatConversation {
     this.lastMessage,
     this.lastMessageText,
     this.lastMessageType,
+    this.lastMessageSenderId,
     DateTime? lastMessageAt,
     this.unreadCount = 0,
     this.isTyping = false,
@@ -121,6 +123,7 @@ class ChatConversation {
               orElse: () => MessageType.text,
             )
           : null,
+      lastMessageSenderId: json['last_message_sender_id'] as String?,
       lastMessageAt: json['last_message_at'] != null
           ? DateTime.tryParse(json['last_message_at'].toString()) ?? DateTime.now()
           : DateTime.now(),
@@ -140,6 +143,7 @@ class ChatConversation {
       'blocked_member_ids': blockedMemberIds,
       'last_message_text': lastMessageText,
       'last_message_type': lastMessageType?.name,
+      'last_message_sender_id': lastMessageSenderId,
       'last_message_at': lastMessageAt.toIso8601String(),
     };
   }
@@ -156,6 +160,7 @@ class ChatConversation {
     ChatMessage? lastMessage,
     String? lastMessageText,
     MessageType? lastMessageType,
+    String? lastMessageSenderId,
     DateTime? lastMessageAt,
     int? unreadCount,
     bool? isTyping,
@@ -174,6 +179,7 @@ class ChatConversation {
       lastMessage: lastMessage ?? this.lastMessage,
       lastMessageText: lastMessageText ?? this.lastMessageText,
       lastMessageType: lastMessageType ?? this.lastMessageType,
+      lastMessageSenderId: lastMessageSenderId ?? this.lastMessageSenderId,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
       unreadCount: unreadCount ?? this.unreadCount,
       isTyping: isTyping ?? this.isTyping,
