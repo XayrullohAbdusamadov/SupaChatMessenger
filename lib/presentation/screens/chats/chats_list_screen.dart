@@ -83,7 +83,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                   contentPadding: EdgeInsets.zero,
                 ),
                 onChanged: (val) {
-                  chatProvider.setSearchQuery(val);
+                  chatProvider.setSearchQuery(val, currentUsername: currentUser.username);
                 },
               )
             : const Text(
@@ -97,7 +97,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
               setState(() {
                 if (_isSearching) {
                   _searchController.clear();
-                  chatProvider.setSearchQuery('');
+                  chatProvider.setSearchQuery('', currentUsername: currentUser.username);
                   _isSearching = false;
                 } else {
                   _isSearching = true;

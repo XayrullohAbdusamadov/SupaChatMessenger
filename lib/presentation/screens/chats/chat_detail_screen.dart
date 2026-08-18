@@ -456,9 +456,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 final msg = messages[index - 1];
                 final isMe = msg.senderId == currentUserId;
 
+                UserProfile? senderProfile;
+                if (!isMe && activeConv.isGroup) {
+                  try {
+                    senderProfile = activeConv.participants.firstWhere(
+                      (p) => p.id == msg.senderId,
+                      orElse: () => UserProfile(
+                        id: msg.senderId,
+                        username: 'user',
+                        fullName: 'Guruh a\'zosi',
+                      ),
+                    );
+                  } catch (_) {
+                    senderProfile = UserProfile(
+                      id: msg.senderId,
+                      username: 'user',
+                      fullName: 'Guruh a\'zosi',
+                    );
+                  }
+                }
+
                 return MessageBubble(
                   message: msg,
                   isMe: isMe,
+                  isGroup: activeConv.isGroup,
+                  senderName: senderProfile?.fullName,
+                  senderAvatarUrl: senderProfile?.avatarUrl,
                   isGroupOwner: isGroupOwner,
                   isGroupAdmin: isGroupAdmin,
                   isVoicePlaying: chatProvider.currentlyPlayingVoiceMsgId == msg.id && chatProvider.isVoicePlaying,

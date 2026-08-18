@@ -6,7 +6,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/avatar_helper.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../providers/chat_provider.dart';
 import '../../../providers/theme_provider.dart';
+import '../chats/chat_detail_screen.dart';
 import 'supabase_config_dialog.dart';
 
 class ProfileSettingsScreen extends StatelessWidget {
@@ -111,6 +113,24 @@ class ProfileSettingsScreen extends StatelessWidget {
           const SizedBox(height: 24),
 
           // SETTINGS LIST TILES
+          _buildSettingsTile(
+            context,
+            icon: Icons.bookmark_border_rounded,
+            title: 'Saqlangan xabarlar 📌',
+            subtitle: 'O\'zingizga xabar, rasm va fayllarni saqlash',
+            isDark: isDark,
+            onTap: () {
+              final chatProvider = context.read<ChatProvider>();
+              final savedChat = chatProvider.startSavedMessagesChat(user);
+              chatProvider.openChat(savedChat, user.id);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChatDetailScreen(conversation: savedChat),
+                ),
+              );
+            },
+          ),
           _buildSettingsTile(
             context,
             icon: Icons.person_outline_rounded,

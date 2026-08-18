@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/avatar_helper.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../data/models/chat_message.dart';
 import '../../../../providers/chat_provider.dart';
@@ -11,6 +12,9 @@ import 'media_attachment_card.dart';
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isMe;
+  final bool isGroup;
+  final String? senderName;
+  final String? senderAvatarUrl;
   final bool isGroupOwner;
   final bool isGroupAdmin;
   final bool isVoicePlaying;
@@ -24,6 +28,9 @@ class MessageBubble extends StatelessWidget {
     super.key,
     required this.message,
     required this.isMe,
+    this.isGroup = false,
+    this.senderName,
+    this.senderAvatarUrl,
     this.isGroupOwner = false,
     this.isGroupAdmin = false,
     required this.isVoicePlaying,
@@ -42,9 +49,23 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Row(
         mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // If outgoing message (isMe), place inline quick actions on the LEFT side of bubble
+          // INCOMING GROUP MESSAGE: SHOW SENDER AVATAR ON THE LEFT
+          if (!isMe && isGroup) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 6, bottom: 2),
+              child: ClipOval(
+                child: AvatarHelper.buildAvatarWidget(
+                  avatarUrl: senderAvatarUrl,
+                  name: senderName ?? 'A\'zo',
+                  radius: 15,
+                ),
+              ),
+            ),
+          ],
+
+          // Outgoing message inline actions on left
           if (isMe) ...[
             _buildInlineQuickActions(context, isDark),
             const SizedBox(width: 6),
@@ -56,7 +77,7 @@ class MessageBubble extends StatelessWidget {
               onLongPress: () => _showMessageOptions(context),
               child: Container(
                 constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.72,
+                  maxWidth: MediaQuery.of(context).size.width * 0.74,
                 ),
                 decoration: BoxDecoration(
                   color: isMe
@@ -86,6 +107,20 @@ class MessageBubble extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // INCOMING GROUP MESSAGE: SENDER NAME HEADER
+                      if (!isMe && isGroup && senderName != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
+                          child: Text(
+                            senderName!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                        ),
+
                       // REPLY PREVIEW IF ANY
                       if (message.replyToMessage != null)
                         _buildReplyPreview(context, message.replyToMessage!, isDark),
@@ -108,7 +143,7 @@ class MessageBubble extends StatelessWidget {
                         )
                       else
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+                          padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -165,7 +200,7 @@ class MessageBubble extends StatelessWidget {
             ),
           ),
 
-          // If incoming message (!isMe), place inline quick actions on the RIGHT side of bubble
+          // Incoming message inline actions on right
           if (!isMe) ...[
             const SizedBox(width: 6),
             _buildInlineQuickActions(context, isDark),
@@ -181,7 +216,6 @@ class MessageBubble extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // 1. Vertical 3 dots options (⋮)
         InkWell(
           onTap: () => _showMessageOptions(context),
           borderRadius: BorderRadius.circular(12),
@@ -191,7 +225,6 @@ class MessageBubble extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 2),
-        // 2. Reply arrow (↩)
         InkWell(
           onTap: () => onReply(message),
           borderRadius: BorderRadius.circular(12),
@@ -286,7 +319,6 @@ class MessageBubble extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Top drag indicator handle
               Center(
                 child: Container(
                   width: 40,
@@ -298,8 +330,6 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // INSTAGRAM QUICK REACTION EMOJIS BAR
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
@@ -332,10 +362,7 @@ class MessageBubble extends StatelessWidget {
                   }).toList(),
                 ),
               ),
-
               const SizedBox(height: 16),
-
-              // Message snippet preview
               if (message.content.isNotEmpty)
                 Container(
                   width: double.infinity,
@@ -361,13 +388,9 @@ class MessageBubble extends StatelessWidget {
                     ),
                   ),
                 ),
-
               const SizedBox(height: 16),
-
-              // ACTION BUTTONS GRID / LIST (Instagram style cards)
               Column(
                 children: [
-                  // REPLY
                   _buildInstagramOptionTile(
                     context: context,
                     icon: Icons.reply_rounded,
@@ -380,8 +403,6 @@ class MessageBubble extends StatelessWidget {
                       onReply(message);
                     },
                   ),
-
-                  // EDIT (for sender)
                   if (isMe && message.messageType == MessageType.text) ...[
                     const SizedBox(height: 8),
                     _buildInstagramOptionTile(
@@ -397,8 +418,6 @@ class MessageBubble extends StatelessWidget {
                       },
                     ),
                   ],
-
-                  // COPY
                   if (message.content.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     _buildInstagramOptionTile(
@@ -422,8 +441,6 @@ class MessageBubble extends StatelessWidget {
                       },
                     ),
                   ],
-
-                  // DELETE
                   if (isMe || isGroupOwner || isGroupAdmin) ...[
                     const SizedBox(height: 8),
                     _buildInstagramOptionTile(
@@ -529,7 +546,6 @@ class MessageBubble extends StatelessWidget {
   Widget _buildTelegramReactionBadges(BuildContext context, bool isDark) {
     if (message.reactions.isEmpty) return const SizedBox.shrink();
 
-    // Group reactions by emoji to get count
     final Map<String, int> counts = {};
     for (var r in message.reactions) {
       counts[r] = (counts[r] ?? 0) + 1;

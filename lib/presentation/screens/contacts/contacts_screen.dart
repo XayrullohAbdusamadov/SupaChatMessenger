@@ -90,7 +90,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 setState(() {
                   _searchFilter = val;
                 });
-                chatProvider.searchUsers(val);
+                chatProvider.searchUsers(val, currentUsername: currentUser.username);
               },
               decoration: InputDecoration(
                 hintText: '@username yoki ism bo\'yicha qidiruv...',
@@ -106,7 +106,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                           setState(() {
                             _searchFilter = '';
                           });
-                          chatProvider.searchUsers('');
+                          chatProvider.searchUsers('', currentUsername: currentUser.username);
                         },
                       )
                     : null,

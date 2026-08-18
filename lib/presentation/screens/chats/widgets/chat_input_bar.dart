@@ -1,5 +1,5 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -43,6 +43,18 @@ class _ChatInputBarState extends State<ChatInputBar> {
   void initState() {
     super.initState();
     _textController.addListener(_onTextChanged);
+
+    // Keyboard Enter to send message on Desktop / Computer (Shift+Enter for newline)
+    _focusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
+        final isShiftPressed = HardwareKeyboard.instance.isShiftPressed;
+        if (!isShiftPressed) {
+          _handleSend();
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    };
   }
 
   @override
@@ -486,6 +498,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                         textCapitalization: TextCapitalization.sentences,
                         minLines: 1,
                         maxLines: 4,
+                        textInputAction: TextInputAction.send,
+                        keyboardType: TextInputType.multiline,
                         style: TextStyle(
                           fontSize: 15,
                           color: isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary,

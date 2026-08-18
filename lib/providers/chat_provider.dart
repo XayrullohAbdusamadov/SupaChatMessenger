@@ -6,7 +6,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../core/services/sound_service.dart';
 import '../core/services/supabase_service.dart';
-import '../core/utils/smart_reply_helper.dart';
 import '../data/models/chat_conversation.dart';
 import '../data/models/chat_message.dart';
 import '../data/models/user_profile.dart';
@@ -91,7 +90,6 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> _loadInitialData() async {
-    // Load saved conversations, recent searches, and blocked user ids
     await _loadSavedConversations();
     await _loadRecentSearches();
 
@@ -184,7 +182,7 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> searchUsers(String query) async {
+  Future<void> searchUsers(String query, {String? currentUsername}) async {
     final cleanQuery = query.trim().replaceAll('@', '').toLowerCase();
     if (cleanQuery.isEmpty) {
       _sqlSearchResults = [];
@@ -197,6 +195,16 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     List<UserProfile> results = [];
+
+    // Check for "saqlangan" search keyword
+    if (cleanQuery.contains('saqlan') || cleanQuery.contains('saved')) {
+      results.add(UserProfile(
+        id: 'saved_messages_self',
+        username: 'saved_messages',
+        fullName: 'Saqlangan xabarlar 📌',
+        about: 'O\'zingizga xabarlar va eslatmalar joyi',
+      ));
+    }
 
     // 1. Search Supabase database if connected
     if (_supabaseService.isInitialized) {
@@ -232,9 +240,62 @@ class ChatProvider extends ChangeNotifier {
       debugPrint('Error searching local users database: $e');
     }
 
+    // 3. Search existing conversation participants
+    for (final conv in _conversations) {
+      for (final p in conv.participants) {
+        if (p.username.toLowerCase().contains(cleanQuery) || p.fullName.toLowerCase().contains(cleanQuery)) {
+          if (!results.any((r) => r.username.toLowerCase() == p.username.toLowerCase())) {
+            results.add(p);
+          }
+        }
+      }
+    }
+
+    // 4. Always provide an account card for cleanQuery if no exact match found
+    if (!results.any((r) => r.username.toLowerCase() == cleanQuery)) {
+      results.add(UserProfile(
+        id: 'user-$cleanQuery',
+        username: cleanQuery,
+        fullName: '@$cleanQuery',
+        about: 'SupaChat foydalanuvchisi',
+      ));
+    }
+
+    // Filter out current user's own account from username search results
+    if (currentUsername != null && currentUsername.isNotEmpty) {
+      results.removeWhere((r) => r.username.toLowerCase() == currentUsername.toLowerCase() && r.id != 'saved_messages_self');
+    }
+
     _sqlSearchResults = results;
     _isSearchingUsers = false;
     notifyListeners();
+  }
+
+  // SAVED MESSAGES (Self-messaging / Note to Self)
+  ChatConversation startSavedMessagesChat(UserProfile currentUser) {
+    final savedId = 'saved_messages_${currentUser.id}';
+    final existingIdx = _conversations.indexWhere((c) => c.id == savedId || c.id == 'saved_messages_self');
+
+    if (existingIdx != -1) {
+      return _conversations[existingIdx];
+    }
+
+    final newChat = ChatConversation(
+      id: savedId,
+      isGroup: false,
+      name: 'Saqlangan xabarlar 📌',
+      avatarUrl: currentUser.avatarUrl,
+      participants: [currentUser],
+      lastMessageText: 'Eslatmalar va fayllar joyi',
+      lastMessageType: MessageType.text,
+      lastMessageAt: DateTime.now(),
+      unreadCount: 0,
+    );
+
+    _conversations.insert(0, newChat);
+    _saveConversations();
+    notifyListeners();
+    return newChat;
   }
 
   // BLOCKING SYSTEM
@@ -332,9 +393,9 @@ class ChatProvider extends ChangeNotifier {
     super.dispose();
   }
 
-  void setSearchQuery(String query) {
+  void setSearchQuery(String query, {String? currentUsername}) {
     _searchQuery = query;
-    searchUsers(query);
+    searchUsers(query, currentUsername: currentUsername);
     notifyListeners();
   }
 
@@ -636,9 +697,8 @@ class ChatProvider extends ChangeNotifier {
 
     if (_supabaseService.isInitialized) {
       await _supabaseService.sendMessage(newMsg);
-    } else {
-      _simulateIntelligentReply(newMsg);
     }
+    // NOTE: Auto-simulated bot replies have been completely removed per user request!
   }
 
   void _updateLastMessage(ChatMessage msg) {
@@ -658,49 +718,6 @@ class ChatProvider extends ChangeNotifier {
       );
       _saveConversations();
     }
-  }
-
-  // DYNAMIC INTELLIGENT BOT REPLIES
-  void _simulateIntelligentReply(ChatMessage userMsg) {
-    if (_activeChat == null || _activeChat!.isGroup) return;
-
-    final targetContact = _activeChat!.participants.isNotEmpty
-        ? _activeChat!.participants.first
-        : UserProfile(id: 'demo-user', username: 'user', fullName: _activeChat!.name);
-
-    if (_blockedUserIds.contains(targetContact.id)) return;
-
-    Future.delayed(const Duration(milliseconds: 1200), () {
-      if (_activeChat == null) return;
-
-      final replyContent = SmartReplyHelper.generateReply(
-        userMessage: userMsg,
-        contactName: targetContact.fullName,
-      );
-
-      final replyMsg = ChatMessage(
-        id: _uuid.v4(),
-        chatId: _activeChat!.id,
-        senderId: targetContact.id,
-        messageType: MessageType.text,
-        content: replyContent,
-        status: MessageStatus.read,
-        createdAt: DateTime.now(),
-      );
-
-      _currentMessages.add(replyMsg);
-      _updateLastMessage(replyMsg);
-      _saveMessagesToLocalCache(_activeChat!.id);
-
-      for (int i = 0; i < _currentMessages.length; i++) {
-        if (_currentMessages[i].senderId == userMsg.senderId) {
-          _currentMessages[i] = _currentMessages[i].copyWith(status: MessageStatus.read);
-        }
-      }
-
-      SoundService.instance.playTiqSound();
-      notifyListeners();
-    });
   }
 
   // Voice note play/pause toggle with AudioPlayer
