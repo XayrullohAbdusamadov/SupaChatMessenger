@@ -719,6 +719,7 @@ class ProfileSettingsScreen extends StatelessWidget {
             ),
             onPressed: () async {
               Navigator.pop(ctx);
+              context.read<ChatProvider>().clearUserData();
               await auth.logout();
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(

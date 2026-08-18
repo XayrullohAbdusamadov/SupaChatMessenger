@@ -84,29 +84,56 @@ class ChatProvider extends ChangeNotifier {
   bool get isVoicePlaying => _isVoicePlaying;
   double get voiceProgress => _voiceProgress;
 
+  String? _currentActiveUserId;
+
   ChatProvider() {
-    _loadInitialData();
     _initAudioPlayer();
   }
 
-  Future<void> _loadInitialData() async {
-    await _loadSavedConversations();
-    await _loadRecentSearches();
+  Future<void> loadUserData(String userId) async {
+    if (userId.isEmpty) return;
+    _currentActiveUserId = userId;
+    await _loadSavedConversations(userId);
+    await _loadRecentSearches(userId);
 
     final prefs = await SharedPreferences.getInstance();
-    final savedBlocked = prefs.getStringList('blocked_user_ids') ?? [];
+    final savedBlocked = prefs.getStringList('blocked_user_ids_$userId') ?? [];
+    _blockedUserIds.clear();
     _blockedUserIds.addAll(savedBlocked);
 
-    final savedViewed = prefs.getStringList('viewed_story_ids') ?? [];
+    final savedViewed = prefs.getStringList('viewed_story_ids_$userId') ?? [];
+    _viewedStoryIds.clear();
     _viewedStoryIds.addAll(savedViewed);
 
+    initGlobalRealtime(userId);
     notifyListeners();
   }
 
-  Future<void> _loadSavedConversations() async {
+  void clearUserData() {
+    _currentActiveUserId = null;
+    _conversations = [];
+    _currentMessages = [];
+    _activeChat = null;
+    _replyingToMessage = null;
+    _editingMessage = null;
+    _recentSearches = [];
+    _globalRealtimeSubscription?.unsubscribe();
+    _globalRealtimeSubscription = null;
+    _realtimeSubscription?.unsubscribe();
+    _realtimeSubscription = null;
+    _audioPlayer?.stop();
+    _isVoicePlaying = false;
+    _currentlyPlayingVoiceMsgId = null;
+    notifyListeners();
+  }
+
+  Future<void> _loadSavedConversations(String userId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonStr = prefs.getString('saved_user_conversations');
+      String? jsonStr = prefs.getString('saved_user_conversations_$userId');
+      if (jsonStr == null || jsonStr.isEmpty) {
+        jsonStr = prefs.getString('saved_user_conversations');
+      }
       if (jsonStr != null && jsonStr.isNotEmpty) {
         final List decoded = jsonDecode(jsonStr);
         _conversations = decoded.map((j) => ChatConversation.fromJson(j)).toList();
@@ -114,36 +141,41 @@ class ChatProvider extends ChangeNotifier {
         _conversations = [];
       }
     } catch (e) {
-      debugPrint('Error loading saved conversations: $e');
+      debugPrint('Error loading saved conversations for user $userId: $e');
       _conversations = [];
     }
   }
 
   Future<void> _saveConversations() async {
+    if (_currentActiveUserId == null || _currentActiveUserId!.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final encoded = jsonEncode(_conversations.map((c) => c.toJson()).toList());
-      await prefs.setString('saved_user_conversations', encoded);
+      await prefs.setString('saved_user_conversations_$_currentActiveUserId', encoded);
     } catch (e) {
       debugPrint('Error saving conversations: $e');
     }
   }
 
   // SEARCH & RECENT SEARCH HISTORY SYSTEM
-  Future<void> _loadRecentSearches() async {
+  Future<void> _loadRecentSearches(String userId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonStr = prefs.getString('recent_searches_history');
+      final jsonStr = prefs.getString('recent_searches_history_$userId');
       if (jsonStr != null && jsonStr.isNotEmpty) {
         final List decoded = jsonDecode(jsonStr);
         _recentSearches = decoded.map((j) => UserProfile.fromJson(j)).toList();
+      } else {
+        _recentSearches = [];
       }
     } catch (e) {
       debugPrint('Error loading recent searches: $e');
+      _recentSearches = [];
     }
   }
 
   Future<void> saveRecentSearch(UserProfile user) async {
+    if (_currentActiveUserId == null || _currentActiveUserId!.isEmpty) return;
     _recentSearches.removeWhere((u) => u.id == user.id || u.username.toLowerCase() == user.username.toLowerCase());
     _recentSearches.insert(0, user);
     if (_recentSearches.length > 25) {
@@ -153,30 +185,32 @@ class ChatProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final encoded = jsonEncode(_recentSearches.map((u) => u.toJson()).toList());
-      await prefs.setString('recent_searches_history', encoded);
+      await prefs.setString('recent_searches_history_$_currentActiveUserId', encoded);
     } catch (e) {
       debugPrint('Error saving recent searches: $e');
     }
   }
 
   Future<void> deleteRecentSearch(String userId) async {
+    if (_currentActiveUserId == null || _currentActiveUserId!.isEmpty) return;
     _recentSearches.removeWhere((u) => u.id == userId);
     notifyListeners();
     try {
       final prefs = await SharedPreferences.getInstance();
       final encoded = jsonEncode(_recentSearches.map((u) => u.toJson()).toList());
-      await prefs.setString('recent_searches_history', encoded);
+      await prefs.setString('recent_searches_history_$_currentActiveUserId', encoded);
     } catch (e) {
       debugPrint('Error deleting recent search: $e');
     }
   }
 
   Future<void> clearRecentSearches() async {
+    if (_currentActiveUserId == null || _currentActiveUserId!.isEmpty) return;
     _recentSearches.clear();
     notifyListeners();
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('recent_searches_history');
+      await prefs.remove('recent_searches_history_$_currentActiveUserId');
     } catch (e) {
       debugPrint('Error clearing recent searches: $e');
     }
@@ -470,7 +504,10 @@ class ChatProvider extends ChangeNotifier {
   Future<void> _loadMessagesFromLocalCache(String chatId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonStr = prefs.getString('chat_messages_$chatId');
+      final cacheKey = chatId.startsWith('saved_messages')
+          ? 'chat_messages_saved_messages_${_currentActiveUserId ?? "self"}'
+          : 'chat_messages_$chatId';
+      final jsonStr = prefs.getString(cacheKey);
       if (jsonStr != null && jsonStr.isNotEmpty) {
         final List decoded = jsonDecode(jsonStr);
         _currentMessages = decoded.map((j) => ChatMessage.fromJson(j)).toList();
@@ -486,8 +523,11 @@ class ChatProvider extends ChangeNotifier {
   Future<void> _saveMessagesToLocalCache(String chatId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      final cacheKey = chatId.startsWith('saved_messages')
+          ? 'chat_messages_saved_messages_${_currentActiveUserId ?? "self"}'
+          : 'chat_messages_$chatId';
       final encoded = jsonEncode(_currentMessages.map((m) => m.toJson()).toList());
-      await prefs.setString('chat_messages_$chatId', encoded);
+      await prefs.setString(cacheKey, encoded);
     } catch (e) {
       debugPrint('Error saving cached messages: $e');
     }

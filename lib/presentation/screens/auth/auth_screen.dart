@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../providers/chat_provider.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -52,7 +53,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
     if (!mounted) return;
 
-    if (!success) {
+    if (success) {
+      context.read<ChatProvider>().loadUserData(auth.currentUser.id);
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(auth.errorMessage ?? 'Xatolik yuz berdi. Username yoki parolni tekshiring.'),

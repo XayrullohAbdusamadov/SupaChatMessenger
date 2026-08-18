@@ -35,7 +35,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       final chatProvider = context.read<ChatProvider>();
       chatProvider.onIncomingNotification = _showTopNotificationBanner;
       if (authProvider.currentUser.id.isNotEmpty) {
-        chatProvider.initGlobalRealtime(authProvider.currentUser.id);
+        chatProvider.loadUserData(authProvider.currentUser.id);
       }
     });
   }
