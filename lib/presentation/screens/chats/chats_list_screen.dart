@@ -224,7 +224,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     child: Text(
-                      'SQL BAZA NATIJALARI (@username):',
+                      'NATIJALAR (@username):',
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,

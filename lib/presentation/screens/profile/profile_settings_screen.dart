@@ -9,7 +9,6 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/chat_provider.dart';
 import '../../../providers/theme_provider.dart';
 import '../chats/chat_detail_screen.dart';
-import 'supabase_config_dialog.dart';
 
 class ProfileSettingsScreen extends StatelessWidget {
   const ProfileSettingsScreen({super.key});
@@ -229,23 +228,6 @@ class ProfileSettingsScreen extends StatelessWidget {
             ),
           ),
 
-          // SUPABASE BACKEND CONFIGURATION
-          _buildSettingsTile(
-            context,
-            icon: Icons.cloud_sync_outlined,
-            title: 'Supabase Sozlamalari',
-            subtitle: authProvider.isSupabaseConnected ? 'Ulangan (Online Database & Storage)' : 'Ulanmagan (Demo rejim)',
-            trailingIcon: authProvider.isSupabaseConnected ? Icons.check_circle : Icons.link,
-            trailingColor: authProvider.isSupabaseConnected ? AppTheme.tertiary : null,
-            isDark: isDark,
-            onTap: () {
-              showDialog(
-                context: context,
-                builder: (_) => const SupabaseConfigDialog(),
-              );
-            },
-          ),
-
           _buildSettingsTile(
             context,
             icon: Icons.help_outline_rounded,
@@ -254,7 +236,7 @@ class ProfileSettingsScreen extends StatelessWidget {
             isDark: isDark,
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('SupaChat v1.0.0 (Tasdiqlangan)')),
+                const SnackBar(content: Text('SupaChat Messenger (Online & Cloud Sync)')),
               );
             },
           ),

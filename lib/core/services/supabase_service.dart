@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../constants/app_constants.dart';
 import '../../data/models/user_profile.dart';
 import '../../data/models/chat_message.dart';
 
@@ -24,10 +25,10 @@ class SupabaseService {
   Future<bool> initialize() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedUrl = prefs.getString('supabase_url');
-      final savedKey = prefs.getString('supabase_anon_key');
+      final savedUrl = prefs.getString('supabase_url') ?? AppConstants.defaultSupabaseUrl;
+      final savedKey = prefs.getString('supabase_anon_key') ?? AppConstants.defaultSupabaseAnonKey;
 
-      if (savedUrl != null && savedKey != null && savedUrl.isNotEmpty && savedKey.isNotEmpty) {
+      if (savedUrl.isNotEmpty && savedKey.isNotEmpty && savedUrl.startsWith('http') && !savedUrl.contains('your-project')) {
         return await connect(savedUrl, savedKey);
       }
     } catch (e) {
@@ -80,10 +81,15 @@ class SupabaseService {
   // AUTHENTICATION
   Future<AuthResponse?> signInWithEmail(String email, String password) async {
     if (!isInitialized) return null;
-    return await _client!.auth.signInWithPassword(
-      email: email.trim(),
-      password: password,
-    );
+    try {
+      return await _client!.auth.signInWithPassword(
+        email: email.trim(),
+        password: password,
+      );
+    } catch (e) {
+      debugPrint('Supabase signInWithEmail error: $e');
+      return null;
+    }
   }
 
   Future<AuthResponse?> signUpWithEmail(
@@ -93,19 +99,28 @@ class SupabaseService {
     required String fullName,
   }) async {
     if (!isInitialized) return null;
-    return await _client!.auth.signUp(
-      email: email.trim(),
-      password: password,
-      data: {
-        'username': username.trim(),
-        'full_name': fullName.trim(),
-      },
-    );
+    try {
+      return await _client!.auth.signUp(
+        email: email.trim(),
+        password: password,
+        data: {
+          'username': username.trim(),
+          'full_name': fullName.trim(),
+        },
+      );
+    } catch (e) {
+      debugPrint('Supabase signUpWithEmail error: $e');
+      return null;
+    }
   }
 
   Future<void> signOut() async {
     if (!isInitialized) return;
-    await _client!.auth.signOut();
+    try {
+      await _client!.auth.signOut();
+    } catch (e) {
+      debugPrint('Supabase signOut error: $e');
+    }
   }
 
   // PROFILES
@@ -150,8 +165,8 @@ class SupabaseService {
     try {
       await _client!.from('profiles').upsert({
         'id': profile.id,
-        'username': profile.username,
-        'full_name': profile.fullName,
+        'username': profile.username.trim().toLowerCase(),
+        'full_name': profile.fullName.trim(),
         'avatar_url': profile.avatarUrl,
         'about': profile.about,
         'is_online': profile.isOnline,
@@ -159,7 +174,7 @@ class SupabaseService {
       });
       return true;
     } catch (e) {
-      debugPrint('Error updating profile: $e');
+      debugPrint('Error updating profile in Supabase: $e');
       return false;
     }
   }
@@ -174,7 +189,7 @@ class SupabaseService {
           .from('profiles')
           .select()
           .or('username.ilike.%$clean%,full_name.ilike.%$clean%')
-          .limit(20);
+          .limit(25);
 
       return (response as List).map((json) => UserProfile.fromJson(json)).toList();
     } catch (e) {
@@ -184,13 +199,46 @@ class SupabaseService {
             .from('profiles')
             .select()
             .ilike('username', '%$clean%')
-            .limit(20);
+            .limit(25);
 
         return (response as List).map((json) => UserProfile.fromJson(json)).toList();
       } catch (err) {
         debugPrint('Fallback username search error: $err');
         return [];
       }
+    }
+  }
+
+  // CHATS
+  Future<bool> createOrEnsureChat({
+    required String chatId,
+    required bool isGroup,
+    String? groupName,
+    String? groupAvatar,
+    required String createdBy,
+    required List<String> participantIds,
+  }) async {
+    if (!isInitialized) return false;
+    try {
+      await _client!.from('chats').upsert({
+        'id': chatId,
+        'is_group': isGroup,
+        'group_name': groupName,
+        'group_avatar': groupAvatar,
+        'created_by': createdBy,
+      });
+
+      for (final uid in participantIds) {
+        await _client!.from('chat_participants').upsert({
+          'chat_id': chatId,
+          'user_id': uid,
+          'role': uid == createdBy ? 'admin' : 'member',
+        });
+      }
+      return true;
+    } catch (e) {
+      debugPrint('Error ensuring chat in Supabase: $e');
+      return false;
     }
   }
 

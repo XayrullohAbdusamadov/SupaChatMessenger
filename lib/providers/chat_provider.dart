@@ -206,12 +206,17 @@ class ChatProvider extends ChangeNotifier {
       );
     }
 
-    // 2. Search Supabase database if connected
+    // 2. Search Supabase database
     if (_supabaseService.isInitialized) {
       try {
         final supaResults = await _supabaseService.searchUsers(cleanQuery);
         for (final u in supaResults) {
           matchedMap[u.username.toLowerCase()] = u;
+        }
+
+        final exactUser = await _supabaseService.fetchProfileByUsername(cleanQuery);
+        if (exactUser != null) {
+          matchedMap[exactUser.username.toLowerCase()] = exactUser;
         }
       } catch (e) {
         debugPrint('Error querying Supabase in searchUsers: $e');
@@ -443,6 +448,15 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
+      _supabaseService.createOrEnsureChat(
+        chatId: conversation.id,
+        isGroup: conversation.isGroup,
+        groupName: conversation.name,
+        groupAvatar: conversation.avatarUrl,
+        createdBy: currentUserId,
+        participantIds: [currentUserId, ...conversation.participants.map((p) => p.id)],
+      );
+
       final fetched = await _supabaseService.fetchMessages(conversation.id);
       if (fetched.isNotEmpty) {
         _currentMessages = fetched;
@@ -803,8 +817,9 @@ class ChatProvider extends ChangeNotifier {
     String? avatarUrl,
     required String creatorId,
   }) {
+    final groupId = _uuid.v4();
     final newGroup = ChatConversation(
-      id: 'group-${_uuid.v4()}',
+      id: groupId,
       isGroup: true,
       name: groupName,
       avatarUrl: avatarUrl,
@@ -820,6 +835,17 @@ class ChatProvider extends ChangeNotifier {
     _conversations.insert(0, newGroup);
     _saveConversations();
     notifyListeners();
+
+    if (_supabaseService.isInitialized) {
+      _supabaseService.createOrEnsureChat(
+        chatId: groupId,
+        isGroup: true,
+        groupName: groupName,
+        groupAvatar: avatarUrl,
+        createdBy: creatorId,
+        participantIds: [creatorId, ...members.map((m) => m.id)],
+      );
+    }
   }
 
   // Start chat with a contact
@@ -832,8 +858,10 @@ class ChatProvider extends ChangeNotifier {
       return _conversations[existingIdx];
     }
 
+    final chatId = _uuid.v5(Namespace.url.value, 'supachat:chat:${contact.username.toLowerCase()}');
+
     final newChat = ChatConversation(
-      id: 'chat-${contact.id}',
+      id: chatId,
       isGroup: false,
       name: contact.fullName,
       avatarUrl: contact.avatarUrl,

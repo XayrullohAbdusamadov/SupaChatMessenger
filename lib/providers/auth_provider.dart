@@ -2,14 +2,19 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import '../core/services/supabase_service.dart';
-import '../core/utils/mock_data.dart';
 import '../data/models/user_profile.dart';
 
 class AuthProvider extends ChangeNotifier {
   final SupabaseService _supabaseService = SupabaseService.instance;
 
-  UserProfile _currentUser = MockData.currentUser;
+  UserProfile _currentUser = UserProfile(
+    id: '',
+    username: '',
+    fullName: '',
+    about: 'Hey there! I am using SupaChat.',
+  );
   bool _isLoggedIn = false;
   bool _isLoading = false;
   bool _biometricEnabled = true;
@@ -216,7 +221,16 @@ class AuthProvider extends ChangeNotifier {
         return false;
       }
 
-      if (_isSupabaseConnected) {
+      final userId = const Uuid().v5(Namespace.url.value, 'supachat:user:$cleanUsername');
+
+      _currentUser = UserProfile(
+        id: userId,
+        username: cleanUsername,
+        fullName: fullName.isNotEmpty ? fullName : cleanUsername,
+        about: about.isNotEmpty ? about : 'Hey there! I am using SupaChat.',
+      );
+
+      if (_isSupabaseConnected || _supabaseService.isInitialized) {
         // 2. Check if username exists in Supabase database
         final existingProfile = await _supabaseService.fetchProfileByUsername(cleanUsername);
         if (existingProfile != null) {
@@ -227,29 +241,18 @@ class AuthProvider extends ChangeNotifier {
         }
 
         final email = '$cleanUsername@supachat.local';
-        final response = await _supabaseService.signUpWithEmail(
+        await _supabaseService.signUpWithEmail(
           email,
           password,
           username: cleanUsername,
           fullName: fullName,
         );
-        final userId = response?.user?.id ?? 'user-$cleanUsername';
-        _currentUser = UserProfile(
-          id: userId,
-          username: cleanUsername,
-          fullName: fullName,
-          about: about.isNotEmpty ? about : 'Hey there! I am using SupaChat.',
-        );
+
+        // Always upsert profile directly into Supabase profiles table
         await _supabaseService.updateProfile(_currentUser);
       } else {
         // Local Registration Mode
-        await Future.delayed(const Duration(milliseconds: 400));
-        _currentUser = UserProfile(
-          id: 'user-$cleanUsername',
-          username: cleanUsername,
-          fullName: fullName.isNotEmpty ? fullName : cleanUsername,
-          about: about.isNotEmpty ? about : 'Hey there! I am using SupaChat.',
-        );
+        await Future.delayed(const Duration(milliseconds: 300));
       }
 
       // Save credentials into persistent user database
@@ -312,11 +315,11 @@ class AuthProvider extends ChangeNotifier {
     final savedUsername = prefs.getString('local_username');
     final savedAbout = prefs.getString('local_about');
 
-    _currentUser = MockData.currentUser.copyWith(
-      fullName: savedName ?? MockData.currentUser.fullName,
-      username: savedUsername ?? MockData.currentUser.username,
-      about: savedAbout ?? MockData.currentUser.about,
-      avatarUrl: savedAvatar ?? MockData.currentUser.avatarUrl,
+    _currentUser = _currentUser.copyWith(
+      fullName: savedName ?? _currentUser.fullName,
+      username: savedUsername ?? _currentUser.username,
+      about: savedAbout ?? _currentUser.about,
+      avatarUrl: savedAvatar ?? _currentUser.avatarUrl,
     );
     notifyListeners();
   }
