@@ -32,6 +32,8 @@ class ChatProvider extends ChangeNotifier {
   String _searchQuery = '';
   final bool _isLoading = false;
   RealtimeChannel? _realtimeSubscription;
+  StreamSubscription<List<ChatMessage>>? _activeChatStreamSubscription;
+  StreamSubscription<List<ChatMessage>>? _globalStreamSubscription;
   Timer? _periodicSyncTimer;
 
   // Audio voice note player
@@ -566,12 +568,6 @@ class ChatProvider extends ChangeNotifier {
     });
   }
 
-  @override
-  void dispose() {
-    _audioPlayer?.dispose();
-    super.dispose();
-  }
-
   void setSearchQuery(String query, {String? currentUsername}) {
     _searchQuery = query;
     searchUsers(query, currentUsername: currentUsername);
@@ -790,17 +786,31 @@ class ChatProvider extends ChangeNotifier {
   }
 
   void initGlobalRealtime(String currentUserId) {
-    if (_currentListeningUserId == currentUserId && _globalRealtimeSubscription != null) {
+    if (_currentListeningUserId == currentUserId && _globalStreamSubscription != null) {
       return;
     }
     _currentListeningUserId = currentUserId;
+
+    // 1. Primary: Rock-solid Supabase Realtime Stream
+    _globalStreamSubscription?.cancel();
+    _globalStreamSubscription = _supabaseService.getGlobalMessagesStream().listen(
+      (messages) {
+        for (final msg in messages.reversed) {
+          processIncomingMessage(msg);
+        }
+      },
+      onError: (err) {
+        debugPrint('Global messages stream error: $err');
+      },
+    );
+
+    // 2. Secondary: Postgres Changes & Broadcast Channel
     _globalRealtimeSubscription?.unsubscribe();
     _globalRealtimeSubscription = _supabaseService.subscribeToAllMessages(
       onMessageReceived: (newMsg) async {
         await processIncomingMessage(newMsg);
       },
       onMessageUpdated: (updatedMsg) async {
-        // Update reaction or edited message in active messages list
         final idx = _currentMessages.indexWhere((m) => m.id == updatedMsg.id);
         if (idx != -1) {
           _currentMessages[idx] = updatedMsg;
@@ -845,7 +855,23 @@ class ChatProvider extends ChangeNotifier {
   }
 
   void _subscribeToRealtime(String chatId) {
+    // 1. Cancel previous stream/channel for clean lifecycle
+    _activeChatStreamSubscription?.cancel();
     _realtimeSubscription?.unsubscribe();
+
+    // 2. Primary: Official Supabase Realtime Stream for active chat
+    _activeChatStreamSubscription = _supabaseService.getChatMessagesStream(chatId).listen(
+      (messages) {
+        if (messages.isNotEmpty) {
+          _mergeFetchedMessages(messages);
+        }
+      },
+      onError: (err) {
+        debugPrint('Chat messages stream error [$chatId]: $err');
+      },
+    );
+
+    // 3. Secondary: Channel listener for broadcast & postgres events
     _realtimeSubscription = _supabaseService.subscribeToChatMessages(
       chatId,
       onMessageReceived: (newMsg) {
@@ -870,6 +896,8 @@ class ChatProvider extends ChangeNotifier {
   }
 
   void closeChat() {
+    _activeChatStreamSubscription?.cancel();
+    _activeChatStreamSubscription = null;
     _realtimeSubscription?.unsubscribe();
     _realtimeSubscription = null;
     _activeChat = null;
@@ -1329,4 +1357,16 @@ class ChatProvider extends ChangeNotifier {
       debugPrint('Error syncing conversations from Supabase: $e');
     }
   }
+
+  @override
+  void dispose() {
+    _activeChatStreamSubscription?.cancel();
+    _globalStreamSubscription?.cancel();
+    _periodicSyncTimer?.cancel();
+    _realtimeSubscription?.unsubscribe();
+    _globalRealtimeSubscription?.unsubscribe();
+    _audioPlayer?.dispose();
+    super.dispose();
+  }
 }
+

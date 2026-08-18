@@ -422,6 +422,32 @@ class SupabaseService {
     }
   }
 
+  // REALTIME STREAMS (Primary rock-solid real-time message delivery)
+  Stream<List<ChatMessage>> getChatMessagesStream(String chatId) {
+    if (!isInitialized) return const Stream.empty();
+    return _client!
+        .from('messages')
+        .stream(primaryKey: ['id'])
+        .eq('chat_id', chatId)
+        .map((data) {
+          final list = data.map((j) => ChatMessage.fromJson(j)).toList();
+          list.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          return list;
+        });
+  }
+
+  Stream<List<ChatMessage>> getGlobalMessagesStream() {
+    if (!isInitialized) return const Stream.empty();
+    return _client!
+        .from('messages')
+        .stream(primaryKey: ['id'])
+        .map((data) {
+          final list = data.map((j) => ChatMessage.fromJson(j)).toList();
+          list.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          return list;
+        });
+  }
+
   // REALTIME SUBSCRIPTIONS
   RealtimeChannel? subscribeToChatMessages(
     String chatId, {
@@ -429,7 +455,10 @@ class SupabaseService {
   }) {
     if (!isInitialized) return null;
 
-    final channel = _client!.channel('public:messages:$chatId');
+    final channel = _client!.channel(
+      'public:messages:$chatId',
+      opts: const RealtimeChannelConfig(self: true),
+    );
     channel.onPostgresChanges(
       event: PostgresChangeEvent.all,
       schema: 'public',
@@ -464,7 +493,9 @@ class SupabaseService {
       },
     );
 
-    channel.subscribe();
+    channel.subscribe((status, [error]) {
+      debugPrint('Realtime chat channel [$chatId] status: $status, error: $error');
+    });
     return channel;
   }
 
@@ -479,7 +510,10 @@ class SupabaseService {
       _globalChannel?.unsubscribe();
     } catch (_) {}
 
-    final channel = _client!.channel('public:messages:all');
+    final channel = _client!.channel(
+      'public:messages:all',
+      opts: const RealtimeChannelConfig(self: true),
+    );
     channel.onPostgresChanges(
       event: PostgresChangeEvent.all,
       schema: 'public',
@@ -513,7 +547,9 @@ class SupabaseService {
       },
     );
 
-    channel.subscribe();
+    channel.subscribe((status, [error]) {
+      debugPrint('Realtime global messages channel status: $status, error: $error');
+    });
     _globalChannel = channel;
     return channel;
   }
