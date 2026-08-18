@@ -45,13 +45,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentUser = authProvider.currentUser;
 
-    final filteredContacts = chatProvider.contacts.where((u) {
-      if (_searchFilter.isEmpty) return true;
-      final query = _searchFilter.toLowerCase().replaceAll('@', '');
-      return u.fullName.toLowerCase().contains(query) ||
-          u.username.toLowerCase().contains(query) ||
-          (u.role != null && u.role!.toLowerCase().contains(query));
-    }).toList();
+    final myContacts = chatProvider.contacts;
+    final userGroups = chatProvider.conversations.where((c) => c.isGroup).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -146,6 +141,60 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ),
           const SizedBox(height: 24),
 
+          // LIVE SEARCH RESULTS (If search filter is not empty)
+          if (_searchFilter.trim().isNotEmpty) ...[
+            _buildSectionHeader('QIDIRUV NATIJALARI (@username)', isDark),
+            const SizedBox(height: 8),
+            if (chatProvider.isSearchingUsers)
+              const Padding(
+                padding: EdgeInsets.all(24.0),
+                child: Center(child: CircularProgressIndicator(color: AppTheme.primary)),
+              )
+            else if (chatProvider.sqlSearchResults.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: Text(
+                    'Ushbu username bo\'yicha akkaunt topilmadi',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                    ),
+                  ),
+                ),
+              )
+            else
+              ...chatProvider.sqlSearchResults.map((user) => Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppTheme.cardDark : AppTheme.surfaceLight,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: ListTile(
+                      leading: AvatarHelper.buildAvatarWidget(
+                        avatarUrl: user.avatarUrl,
+                        name: user.fullName,
+                        radius: 22,
+                      ),
+                      title: Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('@${user.username} • ${user.about}'),
+                      trailing: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () => _openChat(context, user, currentUser.id),
+                        child: const Text('Yozish', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                      onTap: () => _openChat(context, user, currentUser.id),
+                    ),
+                  )),
+            const SizedBox(height: 24),
+          ],
+
           // QIDIRUV TARIXI (If search filter is empty & history exists)
           if (_searchFilter.isEmpty && chatProvider.recentSearches.isNotEmpty) ...[
             Row(
@@ -190,11 +239,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
           // SECTION 1: MENING KONTAKTLARIM
           _buildSectionHeader('MENING KONTAKTLARIM', isDark),
           const SizedBox(height: 8),
-          if (filteredContacts.isEmpty)
+          if (myContacts.isEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: 16),
               child: Text(
-                'Kontaktlar topilmadi',
+                'Hali kontaktlar mavjud emas.\nQidiruv orqali foydalanuvchilarni toping!',
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
                   color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
@@ -202,29 +252,31 @@ class _ContactsScreenState extends State<ContactsScreen> {
               ),
             )
           else
-            ...filteredContacts.map((contact) => _buildContactTile(context, contact, currentUser.id, isDark)),
+            ...myContacts.map((contact) => _buildContactTile(context, contact, currentUser.id, isDark)),
 
           const SizedBox(height: 24),
 
           // SECTION 2: GURUHLAR
           _buildSectionHeader('GURUHLAR', isDark),
           const SizedBox(height: 8),
-          _buildGroupTile(
-            context,
-            name: 'Dev Team Alpha',
-            membersCount: 12,
-            iconColor: const Color(0xFF10B981),
-            icon: Icons.code_rounded,
-            isDark: isDark,
-          ),
-          _buildGroupTile(
-            context,
-            name: 'Marketing Sync',
-            membersCount: 8,
-            iconColor: const Color(0xFF3B82F6),
-            icon: Icons.campaign_rounded,
-            isDark: isDark,
-          ),
+          if (userGroups.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'Hali guruhlar yaratilmagan.\n"+ Yangi guruh yaratish" tugmasini bosing!',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                ),
+              ),
+            )
+          else
+            ...userGroups.map((group) => _buildGroupTile(
+                  context,
+                  group: group,
+                  isDark: isDark,
+                )),
 
           const SizedBox(height: 40),
         ],
@@ -295,7 +347,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  contact.role ?? '@${contact.username}',
+                  '@${contact.username}${contact.role != null ? " • ${contact.role}" : ""}',
                   style: TextStyle(
                     fontSize: 13,
                     color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
@@ -315,10 +367,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   Widget _buildGroupTile(
     BuildContext context, {
-    required String name,
-    required int membersCount,
-    required Color iconColor,
-    required IconData icon,
+    required ChatConversation group,
     required bool isDark,
   }) {
     final chatProvider = context.read<ChatProvider>();
@@ -341,10 +390,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.15),
+              color: AppTheme.primary.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, color: iconColor, size: 24),
+            child: const Icon(Icons.groups_rounded, color: AppTheme.primary, size: 24),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -352,12 +401,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name,
+                  group.name,
                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '$membersCount ta a\'zo',
+                  '${group.participants.length} ta a\'zo',
                   style: TextStyle(
                     fontSize: 13,
                     color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
@@ -369,15 +418,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
           IconButton(
             icon: const Icon(Icons.chevron_right_rounded),
             onPressed: () {
-              final group = chatProvider.conversations.firstWhere(
-                (c) => c.isGroup && c.name == name,
-                orElse: () => ChatConversation(
-                  id: 'group-$name',
-                  isGroup: true,
-                  name: name,
-                  lastMessageText: '$membersCount ta a\'zo guruhda faol',
-                ),
-              );
               chatProvider.openChat(group, authProvider.currentUser.id);
               Navigator.push(
                 context,
@@ -397,6 +437,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final chatProvider = context.read<ChatProvider>();
     final authProvider = context.read<AuthProvider>();
     final selectedMembers = <UserProfile>{};
+
+    final availableContacts = chatProvider.contacts;
 
     showDialog(
       context: context,
@@ -427,33 +469,42 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 180),
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: chatProvider.contacts.length,
-                        itemBuilder: (c, idx) {
-                          final contact = chatProvider.contacts[idx];
-                          final isSelected = selectedMembers.contains(contact);
-                          return CheckboxListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(contact.fullName),
-                            subtitle: Text('@${contact.username}'),
-                            value: isSelected,
-                            onChanged: (val) {
-                              setDialogState(() {
-                                if (val == true) {
-                                  selectedMembers.add(contact);
-                                } else {
-                                  selectedMembers.remove(contact);
-                                }
-                              });
-                            },
-                          );
-                        },
+                    if (availableContacts.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(12.0),
+                        child: Text(
+                          'Hali kontaktlar yo\'q. Avval foydalanuvchilar bilan suhbat boshlang!',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      )
+                    else
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 180),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: availableContacts.length,
+                          itemBuilder: (c, idx) {
+                            final contact = availableContacts[idx];
+                            final isSelected = selectedMembers.contains(contact);
+                            return CheckboxListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(contact.fullName),
+                              subtitle: Text('@${contact.username}'),
+                              value: isSelected,
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  if (val == true) {
+                                    selectedMembers.add(contact);
+                                  } else {
+                                    selectedMembers.remove(contact);
+                                  }
+                                });
+                              },
+                            );
+                          },
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

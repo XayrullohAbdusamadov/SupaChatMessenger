@@ -6,7 +6,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../core/services/sound_service.dart';
 import '../core/services/supabase_service.dart';
-import '../core/utils/mock_data.dart';
 import '../core/utils/smart_reply_helper.dart';
 import '../data/models/chat_conversation.dart';
 import '../data/models/chat_message.dart';
@@ -18,9 +17,9 @@ class ChatProvider extends ChangeNotifier {
   final Uuid _uuid = const Uuid();
 
   List<ChatConversation> _conversations = [];
-  List<UserProfile> _contacts = [];
+  final List<UserProfile> _contacts = [];
   List<ChatMessage> _currentMessages = [];
-  List<UserStory> _stories = [];
+  final List<UserStory> _stories = [];
   List<UserProfile> _recentSearches = [];
   List<UserProfile> _sqlSearchResults = [];
   bool _isSearchingUsers = false;
@@ -47,14 +46,26 @@ class ChatProvider extends ChangeNotifier {
     return _conversations.where((c) => c.name.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
   }
 
+  // Active contacts derived from actual conversation participants
   List<UserProfile> get contacts {
-    if (_searchQuery.isEmpty) {
-      return _contacts;
+    final Map<String, UserProfile> userMap = {};
+    for (final conv in _conversations) {
+      for (final p in conv.participants) {
+        userMap[p.id] = p;
+      }
     }
-    return _contacts.where((u) =>
-        u.fullName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-        u.username.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-        (u.role != null && u.role!.toLowerCase().contains(_searchQuery.toLowerCase()))).toList();
+    for (final c in _contacts) {
+      userMap[c.id] = c;
+    }
+    final list = userMap.values.toList();
+    if (_searchQuery.isEmpty) {
+      return list;
+    }
+    final q = _searchQuery.toLowerCase().replaceAll('@', '');
+    return list.where((u) =>
+        u.fullName.toLowerCase().contains(q) ||
+        u.username.toLowerCase().contains(q) ||
+        (u.role != null && u.role!.toLowerCase().contains(q))).toList();
   }
 
   List<ChatMessage> get currentMessages => _currentMessages;
@@ -80,9 +91,6 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> _loadInitialData() async {
-    _contacts = MockData.contacts;
-    _initStories();
-
     // Load saved conversations, recent searches, and blocked user ids
     await _loadSavedConversations();
     await _loadRecentSearches();
@@ -189,49 +197,44 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     List<UserProfile> results = [];
+
+    // 1. Search Supabase database if connected
     if (_supabaseService.isInitialized) {
-      results = await _supabaseService.searchUsers(cleanQuery);
+      final supaResults = await _supabaseService.searchUsers(cleanQuery);
+      results.addAll(supaResults);
     }
 
-    // Fallback/combine with local users
-    final localMatches = _contacts.where((u) =>
-      u.username.toLowerCase().contains(cleanQuery) ||
-      u.fullName.toLowerCase().contains(cleanQuery) ||
-      (u.role != null && u.role!.toLowerCase().contains(cleanQuery))
-    ).toList();
+    // 2. Search locally registered users in SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final dbJson = prefs.getString('registered_users_db') ?? '{}';
+      final Map<String, dynamic> db = jsonDecode(dbJson);
 
-    for (final loc in localMatches) {
-      if (!results.any((r) => r.id == loc.id || r.username == loc.username)) {
-        results.add(loc);
+      for (final username in db.keys) {
+        final uLower = username.toLowerCase();
+        final name = prefs.getString('user_${username}_full_name') ?? username;
+        final about = prefs.getString('user_${username}_about') ?? 'Hey there! I am using SupaChat.';
+        final avatar = prefs.getString('user_${username}_avatar_url');
+
+        if (uLower.contains(cleanQuery) || name.toLowerCase().contains(cleanQuery)) {
+          if (!results.any((r) => r.username.toLowerCase() == uLower)) {
+            results.add(UserProfile(
+              id: 'user-$username',
+              username: username,
+              fullName: name,
+              about: about,
+              avatarUrl: avatar,
+            ));
+          }
+        }
       }
+    } catch (e) {
+      debugPrint('Error searching local users database: $e');
     }
 
     _sqlSearchResults = results;
     _isSearchingUsers = false;
     notifyListeners();
-  }
-
-  void _initStories() {
-    _stories = [
-      UserStory(
-        id: 'story-1',
-        userId: 'user-lola',
-        userName: 'Lola Ahmedova',
-        userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&auto=format&fit=crop&q=80',
-        mediaUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&auto=format&fit=crop&q=80',
-        caption: 'Bugungi quyoshli kun! ✨☀️',
-        createdAt: DateTime.now().subtract(const Duration(hours: 1)),
-      ),
-      UserStory(
-        id: 'story-2',
-        userId: 'user-jasur',
-        userName: 'Jasur Saidov',
-        userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
-        mediaUrl: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=800&auto=format&fit=crop&q=80',
-        caption: 'Tog\'lardagi ajoyib dam olish 🏔️',
-        createdAt: DateTime.now().subtract(const Duration(hours: 3)),
-      ),
-    ];
   }
 
   // BLOCKING SYSTEM
@@ -280,14 +283,11 @@ class ChatProvider extends ChangeNotifier {
     required String replyText,
     required String currentUserId,
   }) async {
-    final contact = _contacts.firstWhere(
-      (c) => c.id == story.userId,
-      orElse: () => UserProfile(
-        id: story.userId,
-        username: story.userName.toLowerCase().replaceAll(' ', '_'),
-        fullName: story.userName,
-        avatarUrl: story.userAvatar,
-      ),
+    final contact = UserProfile(
+      id: story.userId,
+      username: story.userName.toLowerCase().replaceAll(' ', '_'),
+      fullName: story.userName,
+      avatarUrl: story.userAvatar,
     );
 
     final chat = startDirectChat(contact);
@@ -411,7 +411,6 @@ class ChatProvider extends ChangeNotifier {
   Function(ChatMessage message, ChatConversation conversation)? onIncomingNotification;
 
   void triggerNotification(ChatMessage message, ChatConversation conversation) {
-    // Play "tiq" notification sound
     SoundService.instance.playTiqSound();
 
     if (_activeChat == null || _activeChat!.id != message.chatId) {
@@ -585,10 +584,8 @@ class ChatProvider extends ChangeNotifier {
       return;
     }
 
-    // Play "tiq" sound effect on sending message
     SoundService.instance.playTiqSound();
 
-    // If editing existing message
     if (_editingMessage != null) {
       final editIdx = _currentMessages.indexWhere((m) => m.id == _editingMessage!.id);
       if (editIdx != -1) {
@@ -623,7 +620,6 @@ class ChatProvider extends ChangeNotifier {
 
     _currentMessages.add(newMsg);
 
-    // Ensure active chat is registered in conversations list
     final convIdx = _conversations.indexWhere((c) => c.id == _activeChat!.id);
     if (convIdx == -1) {
       _conversations.insert(0, _activeChat!);
@@ -702,7 +698,6 @@ class ChatProvider extends ChangeNotifier {
         }
       }
 
-      // Play notification "tiq" sound
       SoundService.instance.playTiqSound();
       notifyListeners();
     });

@@ -166,17 +166,31 @@ class SupabaseService {
 
   Future<List<UserProfile>> searchUsers(String query) async {
     if (!isInitialized) return [];
+    final clean = query.trim().replaceAll('@', '').toLowerCase();
+    if (clean.isEmpty) return [];
+
     try {
       final response = await _client!
           .from('profiles')
           .select()
-          .or('username.ilike.%$query%,full_name.ilike.%$query%')
+          .or('username.ilike.%$clean%,full_name.ilike.%$clean%')
           .limit(20);
 
       return (response as List).map((json) => UserProfile.fromJson(json)).toList();
     } catch (e) {
-      debugPrint('Error searching users: $e');
-      return [];
+      debugPrint('Error searching users in Supabase: $e');
+      try {
+        final response = await _client!
+            .from('profiles')
+            .select()
+            .ilike('username', '%$clean%')
+            .limit(20);
+
+        return (response as List).map((json) => UserProfile.fromJson(json)).toList();
+      } catch (err) {
+        debugPrint('Fallback username search error: $err');
+        return [];
+      }
     }
   }
 
