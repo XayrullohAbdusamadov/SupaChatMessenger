@@ -330,37 +330,56 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(
-                    color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: ['❤️', '😂', '😮', '😢', '🙏', '👍'].map((emoji) {
-                    return GestureDetector(
-                      onTap: () {
-                        context.read<ChatProvider>().toggleReaction(
-                          messageId: message.id,
-                          emoji: emoji,
-                        );
-                        Navigator.pop(ctx);
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.all(6),
-                        child: Text(
-                          emoji,
-                          style: const TextStyle(fontSize: 26),
-                        ),
+              Builder(
+                builder: (pickerCtx) {
+                  final currentUserId = pickerCtx.read<ChatProvider>().currentActiveUserId ?? '';
+                  final currentReactions = message.reactions;
+
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(
+                        color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
                       ),
-                    );
-                  }).toList(),
-                ),
+                    ),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      child: Row(
+                        children: ['❤️', '👍', '🔥', '😂', '😮', '😢', '🙏', '🎉', '👏', '⚡'].map((emoji) {
+                          final userToken = currentUserId.isNotEmpty ? '$emoji:$currentUserId' : emoji;
+                          final isSelected = currentReactions.contains(userToken) || currentReactions.contains(emoji);
+
+                          return GestureDetector(
+                            onTap: () {
+                              pickerCtx.read<ChatProvider>().toggleReaction(
+                                messageId: message.id,
+                                emoji: emoji,
+                                userId: currentUserId,
+                              );
+                              Navigator.pop(ctx);
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: isSelected ? AppTheme.primary.withValues(alpha: 0.2) : Colors.transparent,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                emoji,
+                                style: const TextStyle(fontSize: 24),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 16),
               if (message.content.isNotEmpty)
@@ -546,43 +565,59 @@ class MessageBubble extends StatelessWidget {
   Widget _buildTelegramReactionBadges(BuildContext context, bool isDark) {
     if (message.reactions.isEmpty) return const SizedBox.shrink();
 
-    final Map<String, int> counts = {};
+    final currentUserId = context.read<ChatProvider>().currentActiveUserId ?? '';
+
+    // Group reactions by emoji
+    final Map<String, List<String>> emojiUserMap = {};
     for (var r in message.reactions) {
-      counts[r] = (counts[r] ?? 0) + 1;
+      String emoji = r;
+      String uid = '';
+      if (r.contains(':')) {
+        final parts = r.split(':');
+        emoji = parts[0];
+        uid = parts.sublist(1).join(':');
+      }
+      emojiUserMap.putIfAbsent(emoji, () => []).add(uid);
     }
 
     return Padding(
-      padding: const EdgeInsets.only(left: 10, right: 10, bottom: 6, top: 2),
+      padding: const EdgeInsets.only(left: 10, right: 10, bottom: 6, top: 4),
       child: Wrap(
-        spacing: 4,
-        runSpacing: 4,
-        children: counts.entries.map((entry) {
+        spacing: 5,
+        runSpacing: 5,
+        children: emojiUserMap.entries.map((entry) {
           final emoji = entry.key;
-          final count = entry.value;
+          final userList = entry.value;
+          final count = userList.length;
+          final bool isSelectedByMe = currentUserId.isNotEmpty && userList.contains(currentUserId);
 
           return GestureDetector(
             onTap: () {
               context.read<ChatProvider>().toggleReaction(
                     messageId: message.id,
                     emoji: emoji,
+                    userId: currentUserId,
                   );
             },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
               decoration: BoxDecoration(
-                color: isMe
-                    ? Colors.white.withValues(alpha: 0.22)
-                    : (isDark ? Colors.black.withValues(alpha: 0.35) : Colors.white),
-                borderRadius: BorderRadius.circular(14),
+                color: isSelectedByMe
+                    ? (isMe ? Colors.white.withValues(alpha: 0.32) : AppTheme.primary.withValues(alpha: 0.2))
+                    : (isMe
+                        ? Colors.white.withValues(alpha: 0.16)
+                        : (isDark ? Colors.black.withValues(alpha: 0.4) : Colors.white)),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isMe
-                      ? Colors.white.withValues(alpha: 0.35)
-                      : (isDark ? Colors.white12 : Colors.black12),
-                  width: 1,
+                  color: isSelectedByMe
+                      ? (isMe ? Colors.white : AppTheme.primary)
+                      : (isMe ? Colors.white24 : (isDark ? Colors.white12 : Colors.black12)),
+                  width: isSelectedByMe ? 1.4 : 0.8,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
+                    color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 4,
                     offset: const Offset(0, 1),
                   ),
@@ -593,21 +628,19 @@ class MessageBubble extends StatelessWidget {
                 children: [
                   Text(
                     emoji,
-                    style: const TextStyle(fontSize: 14),
+                    style: const TextStyle(fontSize: 13),
                   ),
-                  if (count > 1) ...[
-                    const SizedBox(width: 3),
-                    Text(
-                      '$count',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: isMe
-                            ? Colors.white
-                            : (isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary),
-                      ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: isSelectedByMe
+                          ? (isMe ? Colors.white : AppTheme.primary)
+                          : (isMe ? Colors.white70 : (isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary)),
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),

@@ -543,6 +543,8 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  String? get currentActiveUserId => _currentActiveUserId;
+
   RealtimeChannel? _globalRealtimeSubscription;
   String? _currentListeningUserId;
 
@@ -556,6 +558,18 @@ class ChatProvider extends ChangeNotifier {
       onMessageReceived: (newMsg) async {
         // If message was sent by ourselves, ignore
         if (newMsg.senderId == currentUserId) return;
+
+        // Strictly verify that this message is meant for currentUserId
+        bool isMyChat = false;
+        final convIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
+        if (convIdx != -1) {
+          isMyChat = true;
+        } else if (_supabaseService.isInitialized) {
+          isMyChat = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId);
+        }
+
+        // If this message does not belong to the current user, ignore completely!
+        if (!isMyChat) return;
 
         // If this chat is currently open and active
         if (_activeChat != null && _activeChat!.id == newMsg.chatId) {
@@ -571,7 +585,6 @@ class ChatProvider extends ChangeNotifier {
 
         // If chat is NOT currently open: update conversation list and show floating notification banner
         ChatConversation? conv;
-        final convIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
 
         if (convIdx != -1) {
           final existing = _conversations[convIdx];
@@ -613,6 +626,17 @@ class ChatProvider extends ChangeNotifier {
 
         // Trigger in-app notification banner and sound
         triggerNotification(newMsg, conv);
+      },
+      onMessageUpdated: (updatedMsg) async {
+        // Update reaction or edited message in active messages list
+        final idx = _currentMessages.indexWhere((m) => m.id == updatedMsg.id);
+        if (idx != -1) {
+          _currentMessages[idx] = updatedMsg;
+          if (_activeChat != null) {
+            _saveMessagesToLocalCache(_activeChat!.id);
+          }
+          notifyListeners();
+        }
       },
     );
   }
@@ -703,21 +727,41 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // TOGGLE REACTION ON MESSAGE
-  void toggleReaction({required String messageId, required String emoji}) {
+  // TOGGLE REACTION ON MESSAGE (Telegram-style per-user reaction)
+  void toggleReaction({
+    required String messageId,
+    required String emoji,
+    String? userId,
+  }) {
     final idx = _currentMessages.indexWhere((m) => m.id == messageId);
     if (idx != -1) {
-      final currentList = List<String>.from(_currentMessages[idx].reactions);
-      if (currentList.contains(emoji)) {
+      final msg = _currentMessages[idx];
+      final currentList = List<String>.from(msg.reactions);
+      final uid = userId ?? _currentActiveUserId ?? '';
+      final userReactionToken = uid.isNotEmpty ? '$emoji:$uid' : emoji;
+
+      if (currentList.contains(userReactionToken) || currentList.contains(emoji)) {
+        currentList.remove(userReactionToken);
         currentList.remove(emoji);
       } else {
-        currentList.add(emoji);
+        // Remove other reactions by this user if any (Telegram allows 1 reaction per user)
+        if (uid.isNotEmpty) {
+          currentList.removeWhere((r) => r.endsWith(':$uid'));
+        }
+        currentList.add(userReactionToken);
       }
-      _currentMessages[idx] = _currentMessages[idx].copyWith(reactions: currentList);
+
+      final updatedMsg = msg.copyWith(reactions: currentList);
+      _currentMessages[idx] = updatedMsg;
+
       if (_activeChat != null) {
         _saveMessagesToLocalCache(_activeChat!.id);
       }
       notifyListeners();
+
+      if (_supabaseService.isInitialized) {
+        _supabaseService.updateMessageReactions(messageId, currentList);
+      }
     }
   }
 
@@ -981,8 +1025,8 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  // Start chat with a contact
-  ChatConversation startDirectChat(UserProfile contact) {
+  // Start chat with a contact (Direct 1-on-1 chat)
+  ChatConversation startDirectChat(UserProfile contact, {UserProfile? currentUser}) {
     final existingIdx = _conversations.indexWhere(
       (c) => !c.isGroup && c.participants.any((p) => p.id == contact.id || p.username.toLowerCase() == contact.username.toLowerCase()),
     );
@@ -991,7 +1035,10 @@ class ChatProvider extends ChangeNotifier {
       return _conversations[existingIdx];
     }
 
-    final chatId = _uuid.v5(Namespace.url.value, 'supachat:chat:${contact.username.toLowerCase()}');
+    final myUsername = currentUser?.username.toLowerCase() ?? _currentActiveUserId ?? 'self';
+    final targetUsername = contact.username.toLowerCase();
+    final sortedUsernames = [myUsername, targetUsername]..sort();
+    final chatId = _uuid.v5(Namespace.url.value, 'supachat:direct:${sortedUsernames.join(':')}');
 
     final newChat = ChatConversation(
       id: chatId,
@@ -1004,6 +1051,19 @@ class ChatProvider extends ChangeNotifier {
       lastMessageAt: DateTime.now(),
       unreadCount: 0,
     );
+
+    _conversations.insert(0, newChat);
+    _saveConversations();
+    notifyListeners();
+
+    if (_supabaseService.isInitialized && currentUser != null) {
+      _supabaseService.createOrEnsureChat(
+        chatId: chatId,
+        isGroup: false,
+        createdBy: currentUser.id,
+        participantIds: [currentUser.id, contact.id],
+      );
+    }
 
     return newChat;
   }

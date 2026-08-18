@@ -28,8 +28,9 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
 
   void _openChatWithUser(BuildContext context, UserProfile contact, String currentUserId) {
     final chatProvider = context.read<ChatProvider>();
+    final authProvider = context.read<AuthProvider>();
     chatProvider.saveRecentSearch(contact);
-    final chat = chatProvider.startDirectChat(contact);
+    final chat = chatProvider.startDirectChat(contact, currentUser: authProvider.currentUser);
     chatProvider.openChat(chat, currentUserId);
 
     Navigator.push(

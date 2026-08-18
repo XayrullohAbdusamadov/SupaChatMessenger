@@ -270,6 +270,23 @@ class SupabaseService {
     }
   }
 
+  Future<bool> isUserParticipant(String chatId, String userId) async {
+    if (!isInitialized) return false;
+    try {
+      final res = await _client!
+          .from('chat_participants')
+          .select('chat_id')
+          .eq('chat_id', chatId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      return res != null;
+    } catch (e) {
+      debugPrint('Error checking isUserParticipant: $e');
+      return false;
+    }
+  }
+
   // STORAGE UPLOADS
   Future<String?> uploadFile({
     required String bucketName,
@@ -336,6 +353,17 @@ class SupabaseService {
     }
   }
 
+  Future<void> updateMessageReactions(String messageId, List<String> reactions) async {
+    if (!isInitialized) return;
+    try {
+      await _client!.from('messages').update({
+        'reactions': reactions,
+      }).eq('id', messageId);
+    } catch (e) {
+      debugPrint('Error updating message reactions in Supabase: $e');
+    }
+  }
+
   // REALTIME SUBSCRIPTIONS
   RealtimeChannel? subscribeToChatMessages(
     String chatId, {
@@ -365,15 +393,16 @@ class SupabaseService {
     return channel;
   }
 
-  // GLOBAL REALTIME MESSAGE LISTENER FOR INCOMING NOTIFICATIONS
+  // GLOBAL REALTIME MESSAGE LISTENER
   RealtimeChannel? subscribeToAllMessages({
     required Function(ChatMessage message) onMessageReceived,
+    Function(ChatMessage message)? onMessageUpdated,
   }) {
     if (!isInitialized) return null;
 
     final channel = _client!.channel('public:messages:all');
     channel.onPostgresChanges(
-      event: PostgresChangeEvent.insert,
+      event: PostgresChangeEvent.all,
       schema: 'public',
       table: 'messages',
       callback: (payload) {
@@ -381,7 +410,11 @@ class SupabaseService {
         if (newRecord.isNotEmpty) {
           try {
             final message = ChatMessage.fromJson(newRecord);
-            onMessageReceived(message);
+            if (payload.eventType == PostgresChangeEvent.insert) {
+              onMessageReceived(message);
+            } else if (payload.eventType == PostgresChangeEvent.update) {
+              onMessageUpdated?.call(message);
+            }
           } catch (e) {
             debugPrint('Error decoding realtime message: $e');
           }
