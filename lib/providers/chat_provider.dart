@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../core/services/sound_service.dart';
 import '../core/services/supabase_service.dart';
+import '../core/utils/mock_data.dart';
 import '../data/models/chat_conversation.dart';
 import '../data/models/chat_message.dart';
 import '../data/models/user_profile.dart';
@@ -144,7 +145,7 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> saveRecentSearch(UserProfile user) async {
-    _recentSearches.removeWhere((u) => u.id == user.id || u.username == user.username);
+    _recentSearches.removeWhere((u) => u.id == user.id || u.username.toLowerCase() == user.username.toLowerCase());
     _recentSearches.insert(0, user);
     if (_recentSearches.length > 25) {
       _recentSearches = _recentSearches.sublist(0, 25);
@@ -194,25 +195,31 @@ class ChatProvider extends ChangeNotifier {
     _isSearchingUsers = true;
     notifyListeners();
 
-    List<UserProfile> results = [];
+    final Map<String, UserProfile> matchedMap = {};
 
-    // Check for "saqlangan" search keyword
-    if (cleanQuery.contains('saqlan') || cleanQuery.contains('saved')) {
-      results.add(UserProfile(
+    // 1. Check for "saqlangan" search keyword
+    if (cleanQuery.contains('saqlan') || cleanQuery.contains('saved') || cleanQuery.contains('eslatma')) {
+      matchedMap['saved_messages_self'] = UserProfile(
         id: 'saved_messages_self',
         username: 'saved_messages',
         fullName: 'Saqlangan xabarlar 📌',
         about: 'O\'zingizga xabarlar va eslatmalar joyi',
-      ));
+      );
     }
 
-    // 1. Search Supabase database if connected
+    // 2. Search Supabase database if connected
     if (_supabaseService.isInitialized) {
-      final supaResults = await _supabaseService.searchUsers(cleanQuery);
-      results.addAll(supaResults);
+      try {
+        final supaResults = await _supabaseService.searchUsers(cleanQuery);
+        for (final u in supaResults) {
+          matchedMap[u.username.toLowerCase()] = u;
+        }
+      } catch (e) {
+        debugPrint('Error querying Supabase in searchUsers: $e');
+      }
     }
 
-    // 2. Search locally registered users in SharedPreferences
+    // 3. Search locally registered users in SharedPreferences
     try {
       final prefs = await SharedPreferences.getInstance();
       final dbJson = prefs.getString('registered_users_db') ?? '{}';
@@ -220,19 +227,19 @@ class ChatProvider extends ChangeNotifier {
 
       for (final username in db.keys) {
         final uLower = username.toLowerCase();
-        final name = prefs.getString('user_${username}_full_name') ?? username;
-        final about = prefs.getString('user_${username}_about') ?? 'Hey there! I am using SupaChat.';
-        final avatar = prefs.getString('user_${username}_avatar_url') ?? prefs.getString('local_avatar_url');
+        final name = prefs.getString('user_${uLower}_full_name') ?? prefs.getString('user_${username}_full_name') ?? username;
+        final about = prefs.getString('user_${uLower}_about') ?? prefs.getString('user_${username}_about') ?? 'Hey there! I am using SupaChat.';
+        final avatar = prefs.getString('user_${uLower}_avatar_url') ?? prefs.getString('user_${username}_avatar_url');
 
-        if (uLower.contains(cleanQuery) || name.toLowerCase().contains(cleanQuery)) {
-          if (!results.any((r) => r.username.toLowerCase() == uLower)) {
-            results.add(UserProfile(
-              id: 'user-$username',
-              username: username,
+        if (uLower.contains(cleanQuery) || name.toLowerCase().contains(cleanQuery) || about.toLowerCase().contains(cleanQuery)) {
+          if (!matchedMap.containsKey(uLower)) {
+            matchedMap[uLower] = UserProfile(
+              id: 'user-$uLower',
+              username: uLower,
               fullName: name,
               about: about,
               avatarUrl: avatar,
-            ));
+            );
           }
         }
       }
@@ -240,16 +247,43 @@ class ChatProvider extends ChangeNotifier {
       debugPrint('Error searching local users database: $e');
     }
 
-    // 3. Search existing conversation participants
+    // 4. Search all built-in seed users from MockData.contacts
+    for (final contact in MockData.contacts) {
+      final uLower = contact.username.toLowerCase();
+      if (uLower.contains(cleanQuery) ||
+          contact.fullName.toLowerCase().contains(cleanQuery) ||
+          contact.about.toLowerCase().contains(cleanQuery) ||
+          (contact.role != null && contact.role!.toLowerCase().contains(cleanQuery))) {
+        if (!matchedMap.containsKey(uLower)) {
+          matchedMap[uLower] = contact;
+        }
+      }
+    }
+
+    // 5. Search existing conversation participants
     for (final conv in _conversations) {
       for (final p in conv.participants) {
-        if (p.username.toLowerCase().contains(cleanQuery) || p.fullName.toLowerCase().contains(cleanQuery)) {
-          if (!results.any((r) => r.username.toLowerCase() == p.username.toLowerCase())) {
-            results.add(p);
+        final uLower = p.username.toLowerCase();
+        if (uLower.contains(cleanQuery) || p.fullName.toLowerCase().contains(cleanQuery)) {
+          if (!matchedMap.containsKey(uLower)) {
+            matchedMap[uLower] = p;
           }
         }
       }
     }
+
+    // 6. Search recent searches history
+    for (final r in _recentSearches) {
+      final uLower = r.username.toLowerCase();
+      if (uLower.contains(cleanQuery) || r.fullName.toLowerCase().contains(cleanQuery)) {
+        if (!matchedMap.containsKey(uLower)) {
+          matchedMap[uLower] = r;
+        }
+      }
+    }
+
+    // Convert map to results list
+    List<UserProfile> results = matchedMap.values.toList();
 
     // Filter out current user's own account from username search results
     if (currentUsername != null && currentUsername.isNotEmpty) {
@@ -805,7 +839,7 @@ class ChatProvider extends ChangeNotifier {
   // Start chat with a contact
   ChatConversation startDirectChat(UserProfile contact) {
     final existingIdx = _conversations.indexWhere(
-      (c) => !c.isGroup && c.participants.any((p) => p.id == contact.id),
+      (c) => !c.isGroup && c.participants.any((p) => p.id == contact.id || p.username.toLowerCase() == contact.username.toLowerCase()),
     );
 
     if (existingIdx != -1) {

@@ -45,6 +45,32 @@ class AuthProvider extends ChangeNotifier {
     final savedUsername = prefs.getString('local_username');
     final savedAbout = prefs.getString('local_about');
 
+    // Auto-seed default accounts into registered_users_db if missing
+    try {
+      final dbJson = prefs.getString('registered_users_db') ?? '{}';
+      final Map<String, dynamic> db = jsonDecode(dbJson);
+      bool dbUpdated = false;
+
+      for (final contact in MockData.contacts) {
+        final u = contact.username.toLowerCase();
+        if (!db.containsKey(u)) {
+          db[u] = '123456';
+          await prefs.setString('user_${u}_full_name', contact.fullName);
+          await prefs.setString('user_${u}_about', contact.about);
+          if (contact.avatarUrl != null) {
+            await prefs.setString('user_${u}_avatar_url', contact.avatarUrl!);
+          }
+          dbUpdated = true;
+        }
+      }
+
+      if (dbUpdated) {
+        await prefs.setString('registered_users_db', jsonEncode(db));
+      }
+    } catch (e) {
+      debugPrint('Error auto-seeding users db: $e');
+    }
+
     if (savedUsername != null) {
       final userAbout = prefs.getString('user_${savedUsername}_about') ?? savedAbout;
       final userAvatar = prefs.getString('user_${savedUsername}_avatar_url') ?? savedAvatar;
