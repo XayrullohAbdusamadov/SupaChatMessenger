@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../constants/app_constants.dart';
 import '../../data/models/user_profile.dart';
 import '../../data/models/chat_message.dart';
+import '../../data/models/chat_conversation.dart';
 
 class SupabaseService {
   static final SupabaseService instance = SupabaseService._internal();
@@ -475,5 +476,62 @@ class SupabaseService {
 
     channel.subscribe();
     return channel;
+  }
+
+  /// Fetch all conversations for a user from Supabase (via chat_participants table)
+  Future<List<ChatConversation>> fetchUserConversations(String userId) async {
+    if (!isInitialized) return [];
+    try {
+      // Get all chat IDs where this user is a participant
+      final participantRows = await _client!
+          .from('chat_participants')
+          .select('chat_id, unread_count')
+          .eq('user_id', userId);
+
+      if ((participantRows as List).isEmpty) return [];
+
+      final chatIds = participantRows.map((r) => r['chat_id'] as String).toList();
+      final unreadMap = <String, int>{};
+      for (final r in participantRows) {
+        unreadMap[r['chat_id'] as String] = r['unread_count'] as int? ?? 0;
+      }
+
+      // Fetch chat metadata
+      final chatRows = await _client!
+          .from('chats')
+          .select()
+          .inFilter('id', chatIds)
+          .order('last_message_at', ascending: false);
+
+      final List<ChatConversation> conversations = [];
+      for (final chatRow in chatRows as List) {
+        final chatId = chatRow['id'] as String;
+
+        // Fetch participants for this chat
+        final partRows = await _client!
+            .from('chat_participants')
+            .select('user_id')
+            .eq('chat_id', chatId);
+
+        final List<UserProfile> participants = [];
+        for (final pr in partRows as List) {
+          final uid = pr['user_id'] as String;
+          final profile = await fetchProfile(uid);
+          if (profile != null) participants.add(profile);
+        }
+
+        conversations.add(ChatConversation.fromJson(
+          chatRow,
+          participants: participants,
+        ).copyWith(
+          unreadCount: unreadMap[chatId] ?? 0,
+        ));
+      }
+
+      return conversations;
+    } catch (e) {
+      debugPrint('Error fetching user conversations: $e');
+      return [];
+    }
   }
 }

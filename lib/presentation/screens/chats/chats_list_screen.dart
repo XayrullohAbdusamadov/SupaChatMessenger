@@ -374,19 +374,38 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final conversation = chatProvider.conversations[index];
-                      return ChatListItem(
-                        conversation: conversation,
-                        currentUserId: currentUser.id,
-                        currentUsername: currentUser.username,
-                        onTap: () {
-                          chatProvider.openChat(conversation, currentUser.id);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ChatDetailScreen(conversation: conversation),
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: ChatListItem(
+                              conversation: conversation,
+                              currentUserId: currentUser.id,
+                              currentUsername: currentUser.username,
+                              onTap: () {
+                                chatProvider.openChat(conversation, currentUser.id);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ChatDetailScreen(conversation: conversation),
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
+                          ),
+                          if (index < chatProvider.conversations.length - 1)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 82, right: 16),
+                              child: Divider(
+                                height: 1,
+                                thickness: 0.5,
+                                color: isDark
+                                    ? Colors.white.withValues(alpha: 0.06)
+                                    : Colors.black.withValues(alpha: 0.06),
+                              ),
+                            ),
+                        ],
                       );
                     },
                     childCount: chatProvider.conversations.length,

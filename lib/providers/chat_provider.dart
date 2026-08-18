@@ -116,6 +116,9 @@ class ChatProvider extends ChangeNotifier {
     initGlobalRealtime(userId);
     _startPeriodicSync();
     notifyListeners();
+
+    // Sync from Supabase in background (non-blocking)
+    syncConversationsFromSupabase();
   }
 
   void _startPeriodicSync() {
@@ -143,6 +146,9 @@ class ChatProvider extends ChangeNotifier {
       for (final msg in recentMsgs.reversed) {
         await processIncomingMessage(msg, isPeriodicSync: true);
       }
+
+      // Also sync conversation list from Supabase to pick up new chats
+      await syncConversationsFromSupabase();
     } catch (_) {}
   }
 
@@ -590,10 +596,10 @@ class ChatProvider extends ChangeNotifier {
     final currentUserId = _currentActiveUserId;
     if (currentUserId == null || currentUserId.isEmpty) return;
 
-    // If message was sent by ourselves, ignore
-    if (newMsg.senderId == currentUserId ||
-        (_currentActiveUsername != null &&
-            newMsg.senderId.replaceAll('user-', '').trim().toLowerCase() == _currentActiveUsername!.trim().toLowerCase())) {
+    // If message was sent by ourselves, ignore (check both userId and username)
+    final myUsername = _currentActiveUsername?.trim().toLowerCase() ?? '';
+    final senderClean = newMsg.senderId.replaceAll('user-', '').trim().toLowerCase();
+    if (newMsg.senderId == currentUserId || (myUsername.isNotEmpty && senderClean == myUsername)) {
       return;
     }
 
@@ -602,7 +608,7 @@ class ChatProvider extends ChangeNotifier {
     if (_supabaseService.isInitialized) {
       senderProfile = await _supabaseService.fetchProfile(newMsg.senderId);
     }
-    final senderUsername = senderProfile?.username ?? newMsg.senderId.replaceAll('user-', '').trim().toLowerCase();
+    final senderUsername = senderProfile?.username ?? senderClean;
     senderProfile ??= UserProfile(
       id: newMsg.senderId,
       username: senderUsername,
@@ -612,25 +618,34 @@ class ChatProvider extends ChangeNotifier {
     // Strictly verify that this message is meant for currentUserId
     bool isMyChat = false;
 
-    if (_currentActiveUsername != null && _currentActiveUsername!.isNotEmpty) {
-      final myUser = _currentActiveUsername!.trim().toLowerCase();
+    // 1. Check if message is in an existing known conversation (any type)
+    final existingConvIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
+    if (existingConvIdx != -1) {
+      isMyChat = true;
+    }
+
+    // 2. If username is available, compute expected direct chat ID from usernames
+    if (!isMyChat && myUsername.isNotEmpty) {
       final senderUser = senderUsername.trim().toLowerCase();
-      final sorted = [myUser, senderUser]..sort();
+      final sorted = [myUsername, senderUser]..sort();
       final expectedDirectChatId = _uuid.v5(Namespace.url.value, 'supachat:direct:${sorted.join(':')}');
       if (newMsg.chatId == expectedDirectChatId) {
         isMyChat = true;
       }
     }
 
-    // Check if it's an existing group conversation or registered group participant
-    if (!isMyChat) {
-      final existingGroupIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId && c.isGroup);
-      if (existingGroupIdx != -1) {
+    // 3. Fallback: check Supabase chat_participants table
+    if (!isMyChat && _supabaseService.isInitialized) {
+      final isParticipant = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId);
+      if (isParticipant) {
         isMyChat = true;
-      } else if (_supabaseService.isInitialized) {
-        final isParticipant = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId);
-        if (isParticipant) {
-          isMyChat = true;
+      }
+      // Also try by username-based user ID
+      if (!isParticipant && myUsername.isNotEmpty) {
+        final usernameBasedId = 'user-$myUsername';
+        if (usernameBasedId != currentUserId) {
+          final isParticipant2 = await _supabaseService.isUserParticipant(newMsg.chatId, usernameBasedId);
+          if (isParticipant2) isMyChat = true;
         }
       }
     }
@@ -1007,6 +1022,22 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
+      // Ensure chat and all participants are registered BEFORE sending the message
+      // This is critical: the trigger only adds the sender, but the receiver must also be in chat_participants
+      // so they can discover the conversation via syncConversationsFromSupabase
+      if (_activeChat != null && !_activeChat!.id.startsWith('saved_messages')) {
+        final participantIds = _activeChat!.participants.map((p) => p.id).toList();
+        if (!participantIds.contains(senderId)) participantIds.add(senderId);
+        await _supabaseService.createOrEnsureChat(
+          chatId: _activeChat!.id,
+          isGroup: _activeChat!.isGroup,
+          groupName: _activeChat!.isGroup ? _activeChat!.name : null,
+          groupAvatar: _activeChat!.isGroup ? _activeChat!.avatarUrl : null,
+          createdBy: senderId,
+          participantIds: participantIds,
+        );
+      }
+
       final sent = await _supabaseService.sendMessage(newMsg);
       final idx = _currentMessages.indexWhere((m) => m.id == newMsg.id);
       if (idx != -1) {
@@ -1150,19 +1181,37 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // Start chat with a contact (Direct 1-on-1 chat)
+  // Always uses username-based deterministic UUID for chat ID consistency
   ChatConversation startDirectChat(UserProfile contact, {UserProfile? currentUser}) {
     final existingIdx = _conversations.indexWhere(
       (c) => !c.isGroup && c.participants.any((p) => p.id == contact.id || p.username.toLowerCase() == contact.username.toLowerCase()),
     );
 
+    // Determine my username: prefer currentUser.username, then _currentActiveUsername, never userId
+    final myUsername = (currentUser?.username.isNotEmpty == true
+            ? currentUser!.username
+            : _currentActiveUsername ?? '')
+        .trim()
+        .toLowerCase();
+    final targetUsername = contact.username.trim().toLowerCase();
+
+    // Compute deterministic chat ID based on usernames (sorted alphabetically)
+    final sortedUsernames = [myUsername, targetUsername]..sort();
+    final chatId = myUsername.isNotEmpty
+        ? _uuid.v5(Namespace.url.value, 'supachat:direct:${sortedUsernames.join(':')}')
+        : _uuid.v4(); // fallback, should never happen
+
+    // If existing conv found by participants, return it (already matched above)
     if (existingIdx != -1) {
-      return _conversations[existingIdx];
+      // But also check if the stored chat ID matches expected - if not, update it
+      final existing = _conversations[existingIdx];
+      if (existing.id == chatId) return existing;
+      // IDs differ - prefer the deterministic one (open the correct chat)
     }
 
-    final myUsername = currentUser?.username.toLowerCase() ?? _currentActiveUserId ?? 'self';
-    final targetUsername = contact.username.toLowerCase();
-    final sortedUsernames = [myUsername, targetUsername]..sort();
-    final chatId = _uuid.v5(Namespace.url.value, 'supachat:direct:${sortedUsernames.join(':')}');
+    // Check by computed chatId as well
+    final byIdIdx = _conversations.indexWhere((c) => c.id == chatId);
+    if (byIdIdx != -1) return _conversations[byIdIdx];
 
     final newChat = ChatConversation(
       id: chatId,
@@ -1190,5 +1239,27 @@ class ChatProvider extends ChangeNotifier {
     }
 
     return newChat;
+  }
+
+  /// Fetch conversations from Supabase for the current user and merge into local list
+  Future<void> syncConversationsFromSupabase() async {
+    if (!_supabaseService.isInitialized || _currentActiveUserId == null) return;
+    try {
+      final remote = await _supabaseService.fetchUserConversations(_currentActiveUserId!);
+      for (final conv in remote) {
+        final localIdx = _conversations.indexWhere((c) => c.id == conv.id);
+        if (localIdx == -1) {
+          // New conversation not yet in local list — add it
+          _conversations.insert(0, conv);
+        }
+      }
+      if (remote.isNotEmpty) {
+        _conversations.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+        await _saveConversations();
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error syncing conversations from Supabase: $e');
+    }
   }
 }
