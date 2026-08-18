@@ -185,10 +185,12 @@ class ChatProvider extends ChangeNotifier {
         _conversations = [];
       }
 
-      // Reconcile and populate real last message details from cached message store
+      // Reconcile and calculate real unread counts and last message details from cached message store
       for (int i = 0; i < _conversations.length; i++) {
         final conv = _conversations[i];
         final cached = await _loadCachedMessagesForChat(conv.id);
+        final lastReadMsgId = prefs.getString('last_read_msg_${conv.id}');
+
         if (cached.isNotEmpty) {
           final lastMsg = cached.last;
           String preview = lastMsg.content;
@@ -197,11 +199,43 @@ class ChatProvider extends ChangeNotifier {
           if (lastMsg.messageType == MessageType.voice) preview = '🎤 Ovoz (${lastMsg.voiceDuration ?? 10}s)';
           if (lastMsg.messageType == MessageType.doc) preview = '📄 ${lastMsg.fileName ?? "Hujjat"}';
 
+          final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase() ?? '';
+          final myId = userId.toLowerCase();
+
+          // Calculate how many messages are unread from other participants
+          int calculatedUnread = 0;
+          if (lastReadMsgId != null) {
+            final lastReadIdx = cached.indexWhere((m) => m.id == lastReadMsgId);
+            if (lastReadIdx != -1) {
+              calculatedUnread = cached.sublist(lastReadIdx + 1).where((m) {
+                final s = m.senderId.toLowerCase();
+                if (s == myId) return false;
+                if (cleanMyUsername.isNotEmpty && (s == cleanMyUsername || s.replaceAll('user-', '') == cleanMyUsername)) return false;
+                return true;
+              }).length;
+            } else {
+              calculatedUnread = cached.where((m) {
+                final s = m.senderId.toLowerCase();
+                if (s == myId) return false;
+                if (cleanMyUsername.isNotEmpty && (s == cleanMyUsername || s.replaceAll('user-', '') == cleanMyUsername)) return false;
+                return true;
+              }).length;
+            }
+          } else {
+            calculatedUnread = cached.where((m) {
+              final s = m.senderId.toLowerCase();
+              if (s == myId) return false;
+              if (cleanMyUsername.isNotEmpty && (s == cleanMyUsername || s.replaceAll('user-', '') == cleanMyUsername)) return false;
+              return true;
+            }).length;
+          }
+
           _conversations[i] = conv.copyWith(
             lastMessageText: preview,
             lastMessageType: lastMsg.messageType,
             lastMessageSenderId: lastMsg.senderId,
             lastMessageAt: lastMsg.createdAt,
+            unreadCount: calculatedUnread > 0 ? calculatedUnread : conv.unreadCount,
           );
         } else if (conv.lastMessageText == 'Hey there! I am using SupaChat.' || conv.lastMessageText == 'Eslatmalar va fayllar joyi') {
           if (conv.id.startsWith('saved_messages')) {
@@ -546,12 +580,16 @@ class ChatProvider extends ChangeNotifier {
     _editingMessage = null;
 
     final index = _conversations.indexWhere((c) => c.id == conversation.id);
-    if (index != -1 && _conversations[index].unreadCount > 0) {
+    if (index != -1) {
       _conversations[index] = _conversations[index].copyWith(unreadCount: 0);
       _saveConversations();
     }
 
     await _loadMessagesFromLocalCache(conversation.id);
+    if (_currentMessages.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_read_msg_${conversation.id}', _currentMessages.last.id);
+    }
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
@@ -695,6 +733,8 @@ class ChatProvider extends ChangeNotifier {
         _currentMessages.add(newMsg);
         _updateLastMessage(newMsg);
         _saveMessagesToLocalCache(newMsg.chatId);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('last_read_msg_${newMsg.chatId}', newMsg.id);
         if (!alreadyExists) {
           SoundService.instance.playTiqSound();
         }
@@ -703,12 +743,56 @@ class ChatProvider extends ChangeNotifier {
       return;
     }
 
-    if (alreadyExists && convIdx != -1) {
-      return;
+    // Chat is NOT open: update or add conversation in list with exact unread bubble count
+    ChatConversation? conv;
+
+    final prefs = await SharedPreferences.getInstance();
+    final lastReadMsgId = prefs.getString('last_read_msg_${newMsg.chatId}');
+    final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase() ?? '';
+    final myId = currentUserId.toLowerCase();
+
+    final allMessagesInChat = List<ChatMessage>.from(cached);
+    if (!allMessagesInChat.any((m) => m.id == newMsg.id)) {
+      allMessagesInChat.add(newMsg);
     }
 
-    // Chat is NOT currently open: update or add conversation in list and show floating notification banner
-    ChatConversation? conv;
+    // Exact count of separate unread message bubbles sent by the other user
+    int accurateUnreadBubbleCount = 0;
+    if (lastReadMsgId != null) {
+      final lastReadIdx = allMessagesInChat.indexWhere((m) => m.id == lastReadMsgId);
+      if (lastReadIdx != -1) {
+        accurateUnreadBubbleCount = allMessagesInChat.sublist(lastReadIdx + 1).where((m) {
+          final s = m.senderId.toLowerCase();
+          if (s == myId) return false;
+          if (cleanMyUsername.isNotEmpty && (s == cleanMyUsername || s.replaceAll('user-', '') == cleanMyUsername)) return false;
+          return true;
+        }).length;
+      } else {
+        accurateUnreadBubbleCount = allMessagesInChat.where((m) {
+          final s = m.senderId.toLowerCase();
+          if (s == myId) return false;
+          if (cleanMyUsername.isNotEmpty && (s == cleanMyUsername || s.replaceAll('user-', '') == cleanMyUsername)) return false;
+          return true;
+        }).length;
+      }
+    } else {
+      accurateUnreadBubbleCount = allMessagesInChat.where((m) {
+        final s = m.senderId.toLowerCase();
+        if (s == myId) return false;
+        if (cleanMyUsername.isNotEmpty && (s == cleanMyUsername || s.replaceAll('user-', '') == cleanMyUsername)) return false;
+        return true;
+      }).length;
+    }
+
+    if (accurateUnreadBubbleCount == 0) {
+      accurateUnreadBubbleCount = 1;
+    }
+
+    String preview = newMsg.content.isNotEmpty ? newMsg.content : 'Media xabar';
+    if (newMsg.messageType == MessageType.image) preview = '📷 Rasm';
+    if (newMsg.messageType == MessageType.video) preview = '🎥 Video';
+    if (newMsg.messageType == MessageType.voice) preview = '🎤 Ovozli xabar';
+    if (newMsg.messageType == MessageType.doc) preview = '📄 ${newMsg.fileName ?? "Hujjat"}';
 
     if (convIdx != -1) {
       final existing = _conversations[convIdx];
@@ -722,34 +806,34 @@ class ChatProvider extends ChangeNotifier {
         name: senderProfile.fullName.isNotEmpty ? senderProfile.fullName : existing.name,
         avatarUrl: senderProfile.avatarUrl ?? existing.avatarUrl,
         participants: updatedParticipants,
-        lastMessageText: newMsg.content.isNotEmpty ? newMsg.content : 'Media xabar',
+        lastMessageText: preview,
         lastMessageType: newMsg.messageType,
         lastMessageSenderId: newMsg.senderId,
         lastMessageAt: newMsg.createdAt,
-        unreadCount: alreadyExists ? existing.unreadCount : (existing.unreadCount + 1),
+        unreadCount: accurateUnreadBubbleCount,
       );
       _conversations.removeAt(convIdx);
       _conversations.insert(0, updated);
       conv = updated;
     } else {
-      // NEW CONVERSATION FROM SENDER -> ADD ACCOUNT TO CHATS LIST
+      // NEW CONVERSATION FROM SENDER -> ADD TO CHATS LIST
       final newConv = ChatConversation(
         id: newMsg.chatId,
         isGroup: false,
         name: senderProfile.fullName.isNotEmpty ? senderProfile.fullName : senderProfile.username,
         avatarUrl: senderProfile.avatarUrl,
         participants: [senderProfile],
-        lastMessageText: newMsg.content.isNotEmpty ? newMsg.content : 'Media xabar',
+        lastMessageText: preview,
         lastMessageType: newMsg.messageType,
         lastMessageSenderId: newMsg.senderId,
         lastMessageAt: newMsg.createdAt,
-        unreadCount: 1,
+        unreadCount: accurateUnreadBubbleCount,
       );
       _conversations.insert(0, newConv);
       conv = newConv;
     }
 
-    // Save updated messages and conversation list to cache
+    _conversations.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
     await _saveConversations();
     await _appendMessageToLocalCache(newMsg.chatId, newMsg);
     notifyListeners();
