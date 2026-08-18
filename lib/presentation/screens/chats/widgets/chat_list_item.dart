@@ -35,9 +35,9 @@ class _ChatListItemState extends State<ChatListItem>
     _wasUnread = widget.conversation.unreadCount > 0;
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 1000),
     );
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.18).animate(
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     if (_wasUnread) {
@@ -81,74 +81,120 @@ class _ChatListItemState extends State<ChatListItem>
       color: Colors.transparent,
       child: InkWell(
         onTap: widget.onTap,
-        splashColor: AppTheme.primary.withValues(alpha: 0.07),
-        highlightColor: AppTheme.primary.withValues(alpha: 0.04),
+        splashColor: AppTheme.primary.withValues(alpha: 0.08),
+        highlightColor: AppTheme.primary.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(16),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          decoration: hasUnread
-              ? BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  color: isDark
-                      ? AppTheme.primary.withValues(alpha: 0.06)
-                      : AppTheme.primary.withValues(alpha: 0.035),
-                )
-              : const BoxDecoration(),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          duration: const Duration(milliseconds: 250),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: hasUnread
+                ? (isDark
+                    ? AppTheme.primary.withValues(alpha: 0.09)
+                    : AppTheme.primary.withValues(alpha: 0.045))
+                : Colors.transparent,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // ── AVATAR with online dot ──────────────────────────────
-              _buildAvatar(context, displayName, displayAvatar, isDark),
+              // ── UNREAD LEFT ACCENT INDICATOR BAR ─────────────────
+              if (hasUnread)
+                Container(
+                  width: 3.5,
+                  height: 38,
+                  margin: const EdgeInsets.only(right: 10),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primary.withValues(alpha: 0.5),
+                        blurRadius: 6,
+                        spreadRadius: 0,
+                      ),
+                    ],
+                  ),
+                ),
 
-              const SizedBox(width: 13),
+              // ── AVATAR with online dot & unread ring ─────────────
+              _buildAvatar(context, displayName, displayAvatar, isDark, hasUnread),
+
+              const SizedBox(width: 12),
 
               // ── CONTENT ────────────────────────────────────────────
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Row 1: name + time
+                    // Row 1: Name + Time
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        // Group/muted icon
                         if (widget.conversation.isGroup) ...[
                           Icon(
                             Icons.group_rounded,
-                            size: 14,
-                            color: isDark
-                                ? AppTheme.textDarkSecondary
-                                : AppTheme.textLightSecondary,
+                            size: 15,
+                            color: hasUnread
+                                ? AppTheme.primary
+                                : (isDark
+                                    ? AppTheme.textDarkSecondary
+                                    : AppTheme.textLightSecondary),
                           ),
                           const SizedBox(width: 4),
                         ],
                         Expanded(
-                          child: Text(
-                            displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 15.5,
-                              fontWeight: hasUnread
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
-                              color: isDark
-                                  ? AppTheme.textDarkPrimary
-                                  : AppTheme.textLightPrimary,
-                              letterSpacing: -0.1,
-                            ),
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 15.5,
+                                    fontWeight: hasUnread
+                                        ? FontWeight.w700
+                                        : FontWeight.w600,
+                                    color: isDark
+                                        ? (hasUnread
+                                            ? Colors.white
+                                            : AppTheme.textDarkPrimary)
+                                        : (hasUnread
+                                            ? const Color(0xFF0F172A)
+                                            : AppTheme.textLightPrimary),
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                              ),
+                              if (hasUnread) ...[
+                                const SizedBox(width: 5),
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF2563EB),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                         const SizedBox(width: 8),
-                        // Time — highlighted when unread
+
+                        // Time — highlighted in vibrant blue when unread
                         Text(
                           DateFormatter.formatChatTime(
                               widget.conversation.lastMessageAt),
                           style: TextStyle(
                             fontSize: 11.5,
                             color: hasUnread
-                                ? AppTheme.primary
+                                ? const Color(0xFF2563EB)
                                 : (isDark
                                     ? AppTheme.textDarkSecondary
                                     : AppTheme.textLightSecondary),
@@ -160,9 +206,9 @@ class _ChatListItemState extends State<ChatListItem>
                       ],
                     ),
 
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 4),
 
-                    // Row 2: subtitle + badge
+                    // Row 2: Subtitle / Message Text + Unread Count Badge
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
@@ -189,6 +235,7 @@ class _ChatListItemState extends State<ChatListItem>
     String displayName,
     String? displayAvatar,
     bool isDark,
+    bool hasUnread,
   ) {
     final isOnline = !widget.conversation.isGroup &&
         widget.conversation.participants.isNotEmpty &&
@@ -200,21 +247,27 @@ class _ChatListItemState extends State<ChatListItem>
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Avatar circle
+          // Avatar circle with subtle unread glowing ring
           Container(
             width: 52,
             height: 52,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
+              border: hasUnread
+                  ? Border.all(
+                      color: const Color(0xFF3B82F6).withValues(alpha: 0.6),
+                      width: 2,
+                    )
+                  : null,
               gradient: LinearGradient(
                 colors: widget.conversation.isGroup
                     ? [
-                        AppTheme.secondary.withValues(alpha: 0.3),
-                        AppTheme.primary.withValues(alpha: 0.2),
+                        AppTheme.secondary.withValues(alpha: 0.35),
+                        AppTheme.primary.withValues(alpha: 0.25),
                       ]
                     : [
-                        AppTheme.primary.withValues(alpha: 0.18),
-                        AppTheme.primaryLight.withValues(alpha: 0.1),
+                        AppTheme.primary.withValues(alpha: 0.22),
+                        AppTheme.primaryLight.withValues(alpha: 0.12),
                       ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -246,7 +299,7 @@ class _ChatListItemState extends State<ChatListItem>
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: AppTheme.tertiary.withValues(alpha: 0.5),
+                      color: AppTheme.tertiary.withValues(alpha: 0.6),
                       blurRadius: 4,
                     ),
                   ],
@@ -258,7 +311,7 @@ class _ChatListItemState extends State<ChatListItem>
     );
   }
 
-  // ── UNREAD BADGE ────────────────────────────────────────────────────────
+  // ── UNREAD BADGE (ACCOUNT BLOGI OXIRIDA XABARLAR SONI) ───────────────────
   Widget _buildBadge(BuildContext context) {
     final count = widget.conversation.unreadCount;
     final label = count > 99 ? '99+' : '$count';
@@ -266,39 +319,41 @@ class _ChatListItemState extends State<ChatListItem>
     return ScaleTransition(
       scale: _pulseAnimation,
       child: Container(
-        constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [Color(0xFF4C6EF5), Color(0xFF2F54EB)],
+            colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: AppTheme.primary.withValues(alpha: 0.45),
+              color: const Color(0xFF1D4ED8).withValues(alpha: 0.45),
               blurRadius: 8,
-              spreadRadius: 0,
+              spreadRadius: 1,
               offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.2,
-            height: 1.1,
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.3,
+              height: 1.1,
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ── SUBTITLE / LAST MESSAGE PREVIEW ─────────────────────────────────────
+  // ── SUBTITLE / LAST MESSAGE PREVIEW (YANGI XABAR KELGANINI BILDIRUVCHI DIZAYN) ──
   Widget _buildSubtitle(bool isDark, bool hasUnread) {
     // Typing indicator
     if (widget.conversation.isTyping) {
@@ -313,9 +368,9 @@ class _ChatListItemState extends State<ChatListItem>
         overflow: TextOverflow.ellipsis,
         text: TextSpan(
           children: [
-            TextSpan(
+            const TextSpan(
               text: 'Qoralama: ',
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppTheme.error,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -345,8 +400,8 @@ class _ChatListItemState extends State<ChatListItem>
           fontSize: 13,
           fontStyle: FontStyle.italic,
           color: isDark
-              ? AppTheme.textDarkSecondary.withValues(alpha: 0.55)
-              : AppTheme.textLightSecondary.withValues(alpha: 0.55),
+              ? AppTheme.textDarkSecondary.withValues(alpha: 0.5)
+              : AppTheme.textLightSecondary.withValues(alpha: 0.5),
         ),
       );
     }
@@ -367,13 +422,25 @@ class _ChatListItemState extends State<ChatListItem>
     }
 
     final preview = _resolvePreview();
-    final subtitleColor = hasUnread
-        ? (isDark
-            ? AppTheme.textDarkPrimary.withValues(alpha: 0.9)
-            : AppTheme.textLightPrimary.withValues(alpha: 0.85))
-        : (isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary);
-    final subtitleWeight =
-        hasUnread ? FontWeight.w600 : FontWeight.w400;
+
+    // Text style based on read / unread status
+    final Color textColor;
+    final FontWeight textWeight;
+
+    if (hasUnread && !isMine) {
+      // Unread incoming message: bold, high contrast, vibrant design!
+      textColor = isDark
+          ? const Color(0xFFF1F5F9) // Bright crisp white in dark mode
+          : const Color(0xFF0F172A); // Deep dark slate in light mode
+      textWeight = FontWeight.w600;
+    } else if (hasUnread && isMine) {
+      textColor = isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155);
+      textWeight = FontWeight.w500;
+    } else {
+      // Read message: secondary calm color
+      textColor = isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary;
+      textWeight = FontWeight.w400;
+    }
 
     if (isMine) {
       // "Siz: [preview]"
@@ -388,16 +455,16 @@ class _ChatListItemState extends State<ChatListItem>
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: isDark
-                    ? AppTheme.primaryLight
-                    : AppTheme.primary,
+                    ? const Color(0xFF60A5FA)
+                    : const Color(0xFF2563EB),
               ),
             ),
             TextSpan(
               text: preview,
               style: TextStyle(
                 fontSize: 13,
-                fontWeight: subtitleWeight,
-                color: subtitleColor,
+                fontWeight: textWeight,
+                color: textColor,
               ),
             ),
           ],
@@ -405,16 +472,41 @@ class _ChatListItemState extends State<ChatListItem>
       );
     }
 
-    // Other person's message — plain preview
-    return Text(
-      preview,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        fontSize: 13,
-        fontWeight: subtitleWeight,
-        color: subtitleColor,
-      ),
+    // Other person's message
+    return Row(
+      children: [
+        if (hasUnread) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+            margin: const EdgeInsets.only(right: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2563EB).withValues(alpha: isDark ? 0.25 : 0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              'YANGI',
+              style: TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+                color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8),
+              ),
+            ),
+          ),
+        ],
+        Expanded(
+          child: Text(
+            preview,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: textWeight,
+              color: textColor,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -433,15 +525,15 @@ class _ChatListItemState extends State<ChatListItem>
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
+        const Text(
           'Yozmoqda',
-          style: const TextStyle(
+          style: TextStyle(
             color: AppTheme.primary,
             fontSize: 13,
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(width: 3),
+        const SizedBox(width: 4),
         _DotsWave(),
       ],
     );
