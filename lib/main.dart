@@ -7,8 +7,13 @@ import 'providers/theme_provider.dart';
 import 'presentation/screens/auth/auth_screen.dart';
 import 'presentation/screens/main_navigation_screen.dart';
 
+import 'core/services/supabase_service.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Supabase backend service at startup
+  await SupabaseService.instance.initialize();
 
   runApp(
     MultiProvider(

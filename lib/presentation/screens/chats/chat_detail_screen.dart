@@ -31,6 +31,7 @@ class ChatDetailScreen extends StatefulWidget {
 
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final ScrollController _scrollController = ScrollController();
+  int _prevMessageCount = 0;
 
   @override
   void initState() {
@@ -497,6 +498,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentUserId = authProvider.currentUser.id;
     final messages = chatProvider.currentMessages;
+
+    if (messages.length != _prevMessageCount) {
+      _prevMessageCount = messages.length;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
 
     // Active conversation
     final activeConv = chatProvider.conversations.firstWhere(

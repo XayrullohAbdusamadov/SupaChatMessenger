@@ -359,6 +359,8 @@ class SupabaseService {
     }
   }
 
+  RealtimeChannel? _globalChannel;
+
   Future<ChatMessage?> sendMessage(ChatMessage message) async {
     if (!isInitialized) return null;
     try {
@@ -374,17 +376,33 @@ class SupabaseService {
           'id': message.chatId,
           'last_message_text': message.content.isNotEmpty ? message.content : 'Media xabar',
           'last_message_type': message.messageType.name,
+          'last_message_sender_id': message.senderId,
           'last_message_at': DateTime.now().toIso8601String(),
         });
       } catch (_) {}
 
-      // Broadcast immediately across Realtime channel for zero-latency peer updates
+      // Broadcast immediately across Realtime channels for zero-latency peer updates
       try {
-        _client!.channel('public:messages:all').sendBroadcastMessage(
+        if (_globalChannel != null) {
+          _globalChannel!.sendBroadcastMessage(
+            event: 'new_message',
+            payload: message.toJson(),
+          );
+        } else {
+          _client!.channel('public:messages:all').sendBroadcastMessage(
+            event: 'new_message',
+            payload: message.toJson(),
+          );
+        }
+
+        // Also broadcast directly on chat channel
+        _client!.channel('public:messages:${message.chatId}').sendBroadcastMessage(
           event: 'new_message',
           payload: message.toJson(),
         );
-      } catch (_) {}
+      } catch (err) {
+        debugPrint('Broadcast error (non-fatal): $err');
+      }
 
       return ChatMessage.fromJson(inserted);
     } catch (e) {
@@ -413,7 +431,7 @@ class SupabaseService {
 
     final channel = _client!.channel('public:messages:$chatId');
     channel.onPostgresChanges(
-      event: PostgresChangeEvent.insert,
+      event: PostgresChangeEvent.all,
       schema: 'public',
       table: 'messages',
       filter: PostgresChangeFilter(
@@ -424,12 +442,29 @@ class SupabaseService {
       callback: (payload) {
         final newRecord = payload.newRecord;
         if (newRecord.isNotEmpty) {
-          final message = ChatMessage.fromJson(newRecord);
-          onMessageReceived(message);
+          try {
+            final message = ChatMessage.fromJson(newRecord);
+            onMessageReceived(message);
+          } catch (e) {
+            debugPrint('Error decoding chat message payload: $e');
+          }
         }
       },
-    ).subscribe();
+    );
 
+    channel.onBroadcast(
+      event: 'new_message',
+      callback: (payload) {
+        try {
+          final message = ChatMessage.fromJson(payload);
+          onMessageReceived(message);
+        } catch (e) {
+          debugPrint('Error decoding chat broadcast payload: $e');
+        }
+      },
+    );
+
+    channel.subscribe();
     return channel;
   }
 
@@ -439,6 +474,10 @@ class SupabaseService {
     Function(ChatMessage message)? onMessageUpdated,
   }) {
     if (!isInitialized) return null;
+
+    try {
+      _globalChannel?.unsubscribe();
+    } catch (_) {}
 
     final channel = _client!.channel('public:messages:all');
     channel.onPostgresChanges(
@@ -475,6 +514,7 @@ class SupabaseService {
     );
 
     channel.subscribe();
+    _globalChannel = channel;
     return channel;
   }
 

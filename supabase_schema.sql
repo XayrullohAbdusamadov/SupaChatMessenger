@@ -261,3 +261,14 @@ VALUES
   ('chat-media', 'chat-media', true),
   ('stories', 'stories', true)
 ON CONFLICT (id) DO NOTHING;
+
+-- 14. STORAGE OBJECT RLS POLICIES (Rasm va fayllarni yuklash va ko'rish ruxsatlari)
+DROP POLICY IF EXISTS "Public storage read" ON storage.objects;
+DROP POLICY IF EXISTS "Public storage insert" ON storage.objects;
+DROP POLICY IF EXISTS "Public storage update" ON storage.objects;
+DROP POLICY IF EXISTS "Public storage delete" ON storage.objects;
+
+CREATE POLICY "Public storage read" ON storage.objects FOR SELECT USING (true);
+CREATE POLICY "Public storage insert" ON storage.objects FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public storage update" ON storage.objects FOR UPDATE USING (true);
+CREATE POLICY "Public storage delete" ON storage.objects FOR DELETE USING (true);

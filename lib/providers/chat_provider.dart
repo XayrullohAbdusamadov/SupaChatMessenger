@@ -123,9 +123,35 @@ class ChatProvider extends ChangeNotifier {
 
   void _startPeriodicSync() {
     _periodicSyncTimer?.cancel();
-    _periodicSyncTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    _periodicSyncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _syncBackgroundMessages();
     });
+  }
+
+  void _mergeFetchedMessages(List<ChatMessage> fetched) {
+    if (fetched.isEmpty) return;
+    final Map<String, ChatMessage> map = {};
+    for (final m in _currentMessages) {
+      map[m.id] = m;
+    }
+    bool changed = false;
+    for (final m in fetched) {
+      if (!map.containsKey(m.id) || map[m.id]?.status != m.status || map[m.id]?.content != m.content) {
+        map[m.id] = m;
+        changed = true;
+      }
+    }
+    if (changed || map.length != _currentMessages.length) {
+      final list = map.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      _currentMessages = list;
+      if (_currentMessages.isNotEmpty) {
+        _updateLastMessage(_currentMessages.last);
+      }
+      if (_activeChat != null) {
+        _saveMessagesToLocalCache(_activeChat!.id);
+      }
+      notifyListeners();
+    }
   }
 
   Future<void> _syncBackgroundMessages() async {
@@ -133,11 +159,8 @@ class ChatProvider extends ChangeNotifier {
     try {
       if (_activeChat != null) {
         final fetched = await _supabaseService.fetchMessages(_activeChat!.id);
-        if (fetched.isNotEmpty && (fetched.length != _currentMessages.length || fetched.last.id != _currentMessages.lastOrNull?.id)) {
-          _currentMessages = fetched;
-          _updateLastMessage(fetched.last);
-          _saveMessagesToLocalCache(_activeChat!.id);
-          notifyListeners();
+        if (fetched.isNotEmpty) {
+          _mergeFetchedMessages(fetched);
         }
       }
 
@@ -593,21 +616,26 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
+      final participantIds = <String>{currentUserId};
+      for (final p in conversation.participants) {
+        participantIds.add(p.id);
+        if (p.username.isNotEmpty) {
+          participantIds.add(_uuid.v5(Namespace.url.value, 'supachat:user:${p.username.toLowerCase()}'));
+        }
+      }
+
       _supabaseService.createOrEnsureChat(
         chatId: conversation.id,
         isGroup: conversation.isGroup,
         groupName: conversation.name,
         groupAvatar: conversation.avatarUrl,
         createdBy: currentUserId,
-        participantIds: [currentUserId, ...conversation.participants.map((p) => p.id)],
+        participantIds: participantIds.toList(),
       );
 
       final fetched = await _supabaseService.fetchMessages(conversation.id);
       if (fetched.isNotEmpty) {
-        _currentMessages = fetched;
-        _updateLastMessage(fetched.last);
-        await _saveMessagesToLocalCache(conversation.id);
-        notifyListeners();
+        _mergeFetchedMessages(fetched);
       }
       _subscribeToRealtime(conversation.id);
     }
@@ -664,68 +692,28 @@ class ChatProvider extends ChangeNotifier {
     final currentUserId = _currentActiveUserId;
     if (currentUserId == null || currentUserId.isEmpty) return;
 
-    // If message was sent by ourselves, ignore (check both userId and username)
-    final myUsername = _currentActiveUsername?.trim().toLowerCase() ?? '';
-    final senderClean = newMsg.senderId.replaceAll('user-', '').trim().toLowerCase();
+    final myUsername = _currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
+    final senderClean = newMsg.senderId.replaceAll('user-', '').trim().toLowerCase().replaceAll('@', '');
+
+    // If message was sent by ourselves, ignore
     if (newMsg.senderId == currentUserId || (myUsername.isNotEmpty && senderClean == myUsername)) {
       return;
     }
 
-    // Fetch or resolve sender's profile
+    // Resolve sender's profile
     UserProfile? senderProfile;
     if (_supabaseService.isInitialized) {
       senderProfile = await _supabaseService.fetchProfile(newMsg.senderId);
+      if (senderProfile == null && senderClean.isNotEmpty) {
+        senderProfile = await _supabaseService.fetchProfileByUsername(senderClean);
+      }
     }
     final senderUsername = senderProfile?.username ?? senderClean;
     senderProfile ??= UserProfile(
       id: newMsg.senderId,
       username: senderUsername,
-      fullName: senderUsername,
+      fullName: senderUsername.isNotEmpty ? senderUsername : 'SupaChat User',
     );
-
-    // Strictly verify that this message is meant for currentUserId
-    bool isMyChat = false;
-
-    // 1. Check if message is in an existing known conversation (any type)
-    final existingConvIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
-    if (existingConvIdx != -1) {
-      isMyChat = true;
-    }
-
-    // 2. If username is available, compute expected direct chat ID from usernames
-    if (!isMyChat && myUsername.isNotEmpty) {
-      final senderUser = senderUsername.trim().toLowerCase();
-      final sorted = [myUsername, senderUser]..sort();
-      final expectedDirectChatId = _uuid.v5(Namespace.url.value, 'supachat:direct:${sorted.join(':')}');
-      if (newMsg.chatId == expectedDirectChatId) {
-        isMyChat = true;
-      }
-    }
-
-    // 3. Fallback: check Supabase chat_participants table
-    if (!isMyChat && _supabaseService.isInitialized) {
-      final isParticipant = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId);
-      if (isParticipant) {
-        isMyChat = true;
-      }
-      // Also try by username-based user ID
-      if (!isParticipant && myUsername.isNotEmpty) {
-        final usernameBasedId = 'user-$myUsername';
-        if (usernameBasedId != currentUserId) {
-          final isParticipant2 = await _supabaseService.isUserParticipant(newMsg.chatId, usernameBasedId);
-          if (isParticipant2) isMyChat = true;
-        }
-      }
-    }
-
-    // If this message does not belong to the current user, ignore completely!
-    if (!isMyChat) return;
-
-    final convIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
-
-    // Check if we already have this message cached
-    final cached = await _loadCachedMessagesForChat(newMsg.chatId);
-    final alreadyExists = cached.any((m) => m.id == newMsg.id) || _currentMessages.any((m) => m.id == newMsg.id);
 
     // If this chat is currently open and active
     if (_activeChat != null && _activeChat!.id == newMsg.chatId) {
@@ -735,7 +723,7 @@ class ChatProvider extends ChangeNotifier {
         _saveMessagesToLocalCache(newMsg.chatId);
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('last_read_msg_${newMsg.chatId}', newMsg.id);
-        if (!alreadyExists) {
+        if (!isPeriodicSync) {
           SoundService.instance.playTiqSound();
         }
         notifyListeners();
@@ -743,50 +731,10 @@ class ChatProvider extends ChangeNotifier {
       return;
     }
 
-    // Chat is NOT open: update or add conversation in list with exact unread bubble count
-    ChatConversation? conv;
-
-    final prefs = await SharedPreferences.getInstance();
-    final lastReadMsgId = prefs.getString('last_read_msg_${newMsg.chatId}');
-    final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase() ?? '';
-    final myId = currentUserId.toLowerCase();
-
-    final allMessagesInChat = List<ChatMessage>.from(cached);
-    if (!allMessagesInChat.any((m) => m.id == newMsg.id)) {
-      allMessagesInChat.add(newMsg);
-    }
-
-    // Exact count of separate unread message bubbles sent by the other user
-    int accurateUnreadBubbleCount = 0;
-    if (lastReadMsgId != null) {
-      final lastReadIdx = allMessagesInChat.indexWhere((m) => m.id == lastReadMsgId);
-      if (lastReadIdx != -1) {
-        accurateUnreadBubbleCount = allMessagesInChat.sublist(lastReadIdx + 1).where((m) {
-          final s = m.senderId.toLowerCase();
-          if (s == myId) return false;
-          if (cleanMyUsername.isNotEmpty && (s == cleanMyUsername || s.replaceAll('user-', '') == cleanMyUsername)) return false;
-          return true;
-        }).length;
-      } else {
-        accurateUnreadBubbleCount = allMessagesInChat.where((m) {
-          final s = m.senderId.toLowerCase();
-          if (s == myId) return false;
-          if (cleanMyUsername.isNotEmpty && (s == cleanMyUsername || s.replaceAll('user-', '') == cleanMyUsername)) return false;
-          return true;
-        }).length;
-      }
-    } else {
-      accurateUnreadBubbleCount = allMessagesInChat.where((m) {
-        final s = m.senderId.toLowerCase();
-        if (s == myId) return false;
-        if (cleanMyUsername.isNotEmpty && (s == cleanMyUsername || s.replaceAll('user-', '') == cleanMyUsername)) return false;
-        return true;
-      }).length;
-    }
-
-    if (accurateUnreadBubbleCount == 0) {
-      accurateUnreadBubbleCount = 1;
-    }
+    // Chat is NOT open: update or add conversation in list with unread bubble count
+    final convIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
+    final cached = await _loadCachedMessagesForChat(newMsg.chatId);
+    final alreadyExists = cached.any((m) => m.id == newMsg.id) || _currentMessages.any((m) => m.id == newMsg.id);
 
     String preview = newMsg.content.isNotEmpty ? newMsg.content : 'Media xabar';
     if (newMsg.messageType == MessageType.image) preview = '📷 Rasm';
@@ -794,30 +742,28 @@ class ChatProvider extends ChangeNotifier {
     if (newMsg.messageType == MessageType.voice) preview = '🎤 Ovozli xabar';
     if (newMsg.messageType == MessageType.doc) preview = '📄 ${newMsg.fileName ?? "Hujjat"}';
 
+    ChatConversation conv;
     if (convIdx != -1) {
       final existing = _conversations[convIdx];
       final updatedParticipants = List<UserProfile>.from(existing.participants);
-      final s = senderProfile;
-      if (!updatedParticipants.any((p) => p.id == s.id || p.username.toLowerCase() == s.username.toLowerCase())) {
-        updatedParticipants.add(s);
+      if (!updatedParticipants.any((p) => p.id == senderProfile!.id || p.username.toLowerCase() == senderProfile.username.toLowerCase())) {
+        updatedParticipants.add(senderProfile);
       }
 
-      final updated = existing.copyWith(
-        name: senderProfile.fullName.isNotEmpty ? senderProfile.fullName : existing.name,
-        avatarUrl: senderProfile.avatarUrl ?? existing.avatarUrl,
+      conv = existing.copyWith(
+        name: existing.isGroup ? existing.name : (senderProfile.fullName.isNotEmpty ? senderProfile.fullName : existing.name),
+        avatarUrl: existing.isGroup ? existing.avatarUrl : (senderProfile.avatarUrl ?? existing.avatarUrl),
         participants: updatedParticipants,
         lastMessageText: preview,
         lastMessageType: newMsg.messageType,
         lastMessageSenderId: newMsg.senderId,
         lastMessageAt: newMsg.createdAt,
-        unreadCount: accurateUnreadBubbleCount,
+        unreadCount: alreadyExists ? existing.unreadCount : (existing.unreadCount + 1),
       );
       _conversations.removeAt(convIdx);
-      _conversations.insert(0, updated);
-      conv = updated;
+      _conversations.insert(0, conv);
     } else {
-      // NEW CONVERSATION FROM SENDER -> ADD TO CHATS LIST
-      final newConv = ChatConversation(
+      conv = ChatConversation(
         id: newMsg.chatId,
         isGroup: false,
         name: senderProfile.fullName.isNotEmpty ? senderProfile.fullName : senderProfile.username,
@@ -827,10 +773,9 @@ class ChatProvider extends ChangeNotifier {
         lastMessageType: newMsg.messageType,
         lastMessageSenderId: newMsg.senderId,
         lastMessageAt: newMsg.createdAt,
-        unreadCount: accurateUnreadBubbleCount,
+        unreadCount: 1,
       );
-      _conversations.insert(0, newConv);
-      conv = newConv;
+      _conversations.insert(0, conv);
     }
 
     _conversations.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
@@ -839,7 +784,7 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     // Trigger in-app notification banner and sound
-    if (!alreadyExists) {
+    if (!alreadyExists && !isPeriodicSync) {
       triggerNotification(newMsg, conv);
     }
   }
@@ -1302,40 +1247,41 @@ class ChatProvider extends ChangeNotifier {
   // Start chat with a contact (Direct 1-on-1 chat)
   // Always uses username-based deterministic UUID for chat ID consistency
   ChatConversation startDirectChat(UserProfile contact, {UserProfile? currentUser}) {
-    final existingIdx = _conversations.indexWhere(
-      (c) => !c.isGroup && c.participants.any((p) => p.id == contact.id || p.username.toLowerCase() == contact.username.toLowerCase()),
-    );
-
-    // Determine my username: prefer currentUser.username, then _currentActiveUsername, never userId
+    // Determine usernames: prefer currentUser.username, then _currentActiveUsername
     final myUsername = (currentUser?.username.isNotEmpty == true
             ? currentUser!.username
             : _currentActiveUsername ?? '')
         .trim()
-        .toLowerCase();
-    final targetUsername = contact.username.trim().toLowerCase();
+        .toLowerCase()
+        .replaceAll('@', '');
+    final targetUsername = contact.username.trim().toLowerCase().replaceAll('@', '');
 
-    // Compute deterministic chat ID based on usernames (sorted alphabetically)
+    // Compute deterministic chat ID based on sorted usernames
     final sortedUsernames = [myUsername, targetUsername]..sort();
-    final chatId = myUsername.isNotEmpty
+    final chatId = myUsername.isNotEmpty && targetUsername.isNotEmpty
         ? _uuid.v5(Namespace.url.value, 'supachat:direct:${sortedUsernames.join(':')}')
-        : _uuid.v4(); // fallback, should never happen
+        : _uuid.v4();
 
-    // If existing conv found by participants, return it (already matched above)
+    // Check if conversation already exists
+    final existingIdx = _conversations.indexWhere(
+      (c) => c.id == chatId || (!c.isGroup && c.participants.any((p) => p.id == contact.id || p.username.toLowerCase().replaceAll('@', '') == targetUsername)),
+    );
+
     if (existingIdx != -1) {
-      // But also check if the stored chat ID matches expected - if not, update it
       final existing = _conversations[existingIdx];
-      if (existing.id == chatId) return existing;
-      // IDs differ - prefer the deterministic one (open the correct chat)
+      if (existing.id != chatId) {
+        final updated = existing.copyWith(id: chatId);
+        _conversations[existingIdx] = updated;
+        _saveConversations();
+        return updated;
+      }
+      return existing;
     }
-
-    // Check by computed chatId as well
-    final byIdIdx = _conversations.indexWhere((c) => c.id == chatId);
-    if (byIdIdx != -1) return _conversations[byIdIdx];
 
     final newChat = ChatConversation(
       id: chatId,
       isGroup: false,
-      name: contact.fullName,
+      name: contact.fullName.isNotEmpty ? contact.fullName : contact.username,
       avatarUrl: contact.avatarUrl,
       participants: currentUser != null ? [currentUser, contact] : [contact],
       lastMessageText: null,
@@ -1349,12 +1295,13 @@ class ChatProvider extends ChangeNotifier {
     _saveConversations();
     notifyListeners();
 
-    if (_supabaseService.isInitialized && currentUser != null) {
+    if (_supabaseService.isInitialized) {
+      final myId = currentUser?.id ?? _currentActiveUserId ?? myUsername;
       _supabaseService.createOrEnsureChat(
         chatId: chatId,
         isGroup: false,
-        createdBy: currentUser.id,
-        participantIds: [currentUser.id, contact.id],
+        createdBy: myId,
+        participantIds: [myId, contact.id],
       );
     }
 
