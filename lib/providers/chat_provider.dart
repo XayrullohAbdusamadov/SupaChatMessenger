@@ -222,7 +222,7 @@ class ChatProvider extends ChangeNotifier {
         final uLower = username.toLowerCase();
         final name = prefs.getString('user_${username}_full_name') ?? username;
         final about = prefs.getString('user_${username}_about') ?? 'Hey there! I am using SupaChat.';
-        final avatar = prefs.getString('user_${username}_avatar_url');
+        final avatar = prefs.getString('user_${username}_avatar_url') ?? prefs.getString('local_avatar_url');
 
         if (uLower.contains(cleanQuery) || name.toLowerCase().contains(cleanQuery)) {
           if (!results.any((r) => r.username.toLowerCase() == uLower)) {
@@ -251,12 +251,19 @@ class ChatProvider extends ChangeNotifier {
       }
     }
 
-    // 4. Always provide an account card for cleanQuery if no exact match found
+    // 4. Always provide an account card for cleanQuery with profile picture if saved locally
     if (!results.any((r) => r.username.toLowerCase() == cleanQuery)) {
+      String? savedAvatar;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        savedAvatar = prefs.getString('user_${cleanQuery}_avatar_url');
+      } catch (_) {}
+
       results.add(UserProfile(
         id: 'user-$cleanQuery',
         username: cleanQuery,
         fullName: '@$cleanQuery',
+        avatarUrl: savedAvatar,
         about: 'SupaChat foydalanuvchisi',
       ));
     }
