@@ -368,15 +368,26 @@ class SupabaseService {
           .single();
 
       // Update last message in chat
-      await _client!.from('chats').update({
-        'last_message_text': message.content,
-        'last_message_type': message.messageType.name,
-        'last_message_at': DateTime.now().toIso8601String(),
-      }).eq('id', message.chatId);
+      try {
+        await _client!.from('chats').upsert({
+          'id': message.chatId,
+          'last_message_text': message.content.isNotEmpty ? message.content : 'Media xabar',
+          'last_message_type': message.messageType.name,
+          'last_message_at': DateTime.now().toIso8601String(),
+        });
+      } catch (_) {}
+
+      // Broadcast immediately across Realtime channel for zero-latency peer updates
+      try {
+        _client!.channel('public:messages:all').sendBroadcastMessage(
+          event: 'new_message',
+          payload: message.toJson(),
+        );
+      } catch (_) {}
 
       return ChatMessage.fromJson(inserted);
     } catch (e) {
-      debugPrint('Error sending message: $e');
+      debugPrint('Error sending message to Supabase: $e');
       return null;
     }
   }
@@ -444,12 +455,25 @@ class SupabaseService {
               onMessageUpdated?.call(message);
             }
           } catch (e) {
-            debugPrint('Error decoding realtime message: $e');
+            debugPrint('Error decoding realtime postgres message: $e');
           }
         }
       },
-    ).subscribe();
+    );
 
+    channel.onBroadcast(
+      event: 'new_message',
+      callback: (payload) {
+        try {
+          final message = ChatMessage.fromJson(payload);
+          onMessageReceived(message);
+        } catch (e) {
+          debugPrint('Error decoding broadcast message: $e');
+        }
+      },
+    );
+
+    channel.subscribe();
     return channel;
   }
 }

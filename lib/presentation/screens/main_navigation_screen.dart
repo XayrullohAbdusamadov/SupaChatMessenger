@@ -18,7 +18,7 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
+class _MainNavigationScreenState extends State<MainNavigationScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
 
   final List<Widget> _screens = const [
@@ -30,6 +30,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = context.read<AuthProvider>();
       final chatProvider = context.read<ChatProvider>();
@@ -38,6 +39,24 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         chatProvider.loadUserData(authProvider.currentUser.id, username: authProvider.currentUser.username);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      final authProvider = context.read<AuthProvider>();
+      final chatProvider = context.read<ChatProvider>();
+      if (authProvider.currentUser.id.isNotEmpty) {
+        chatProvider.initGlobalRealtime(authProvider.currentUser.id);
+        chatProvider.syncBackground();
+      }
+    }
   }
 
   void _showTopNotificationBanner(ChatMessage message, ChatConversation conversation) {

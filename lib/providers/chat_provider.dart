@@ -940,6 +940,8 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> syncBackground() => _syncBackgroundMessages();
+
   // SEND MESSAGE
   Future<void> sendMessage({
     required String senderId,
@@ -984,7 +986,7 @@ class ChatProvider extends ChangeNotifier {
       mediaSize: mediaSize,
       fileName: fileName,
       voiceDuration: voiceDuration,
-      status: MessageStatus.sent,
+      status: MessageStatus.sending,
       createdAt: DateTime.now(),
     );
 
@@ -1005,7 +1007,17 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
-      await _supabaseService.sendMessage(newMsg);
+      final sent = await _supabaseService.sendMessage(newMsg);
+      final idx = _currentMessages.indexWhere((m) => m.id == newMsg.id);
+      if (idx != -1) {
+        _currentMessages[idx] = _currentMessages[idx].copyWith(
+          status: sent != null ? MessageStatus.sent : MessageStatus.delivered,
+        );
+        if (_activeChat != null) {
+          _saveMessagesToLocalCache(_activeChat!.id);
+        }
+        notifyListeners();
+      }
     }
   }
 
