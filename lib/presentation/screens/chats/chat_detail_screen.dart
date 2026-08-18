@@ -239,13 +239,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       orElse: () => widget.conversation,
     );
 
-    final contact = activeConv.participants.isNotEmpty
+    final displayName = activeConv.getDisplayName(currentUserId, currentUsername: authProvider.currentUser.username);
+    final displayAvatar = activeConv.getDisplayAvatar(currentUserId, currentUsername: authProvider.currentUser.username);
+    final otherContact = activeConv.getOtherParticipant(currentUserId, currentUsername: authProvider.currentUser.username);
+    final contact = otherContact ?? (activeConv.participants.isNotEmpty
         ? activeConv.participants.first
         : UserProfile(
-            id: 'demo-contact',
-            username: activeConv.name.toLowerCase().replaceAll(' ', '_'),
-            fullName: activeConv.name,
-          );
+            id: 'contact',
+            username: displayName.toLowerCase().replaceAll(' ', '_'),
+            fullName: displayName,
+          ));
 
     final isBlocked = !activeConv.isGroup && chatProvider.isUserBlocked(contact.id);
     final isOnline = !activeConv.isGroup && contact.isOnline && !isBlocked;
@@ -268,8 +271,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Stack(
               children: [
                 AvatarHelper.buildAvatarWidget(
-                  avatarUrl: activeConv.avatarUrl,
-                  name: activeConv.name,
+                  avatarUrl: displayAvatar,
+                  name: displayName,
                   radius: 19,
                 ),
                 if (isOnline)
@@ -299,7 +302,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    activeConv.name,
+                    displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),

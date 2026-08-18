@@ -42,6 +42,63 @@ class ChatConversation {
   bool isAdmin(String userId) => isOwner(userId) || adminIds.contains(userId);
   bool isMemberBlocked(String userId) => blockedMemberIds.contains(userId);
 
+  String getDisplayName(String? currentUserId, {String? currentUsername}) {
+    if (isGroup) return name;
+    if (id.startsWith('saved_messages')) return 'Saqlangan xabarlar 📌';
+
+    if (participants.isNotEmpty) {
+      final others = participants.where((p) {
+        if (currentUserId != null && currentUserId.isNotEmpty && p.id == currentUserId) return false;
+        if (currentUsername != null && currentUsername.isNotEmpty && p.username.toLowerCase() == currentUsername.toLowerCase()) return false;
+        return true;
+      }).toList();
+
+      if (others.isNotEmpty) {
+        final other = others.first;
+        if (other.fullName.isNotEmpty) return other.fullName;
+        if (other.username.isNotEmpty) return other.username;
+      }
+    }
+
+    if (currentUsername != null && currentUsername.isNotEmpty && name.toLowerCase() == currentUsername.toLowerCase()) {
+      if (participants.isNotEmpty && participants.first.fullName.isNotEmpty) {
+        return participants.first.fullName;
+      }
+    }
+
+    return name;
+  }
+
+  String? getDisplayAvatar(String? currentUserId, {String? currentUsername}) {
+    if (isGroup) return avatarUrl;
+    if (id.startsWith('saved_messages')) return avatarUrl;
+
+    if (participants.isNotEmpty) {
+      final others = participants.where((p) {
+        if (currentUserId != null && currentUserId.isNotEmpty && p.id == currentUserId) return false;
+        if (currentUsername != null && currentUsername.isNotEmpty && p.username.toLowerCase() == currentUsername.toLowerCase()) return false;
+        return true;
+      }).toList();
+
+      if (others.isNotEmpty) {
+        return others.first.avatarUrl ?? avatarUrl;
+      }
+    }
+    return avatarUrl;
+  }
+
+  UserProfile? getOtherParticipant(String? currentUserId, {String? currentUsername}) {
+    if (isGroup || participants.isEmpty) return null;
+    final others = participants.where((p) {
+      if (currentUserId != null && currentUserId.isNotEmpty && p.id == currentUserId) return false;
+      if (currentUsername != null && currentUsername.isNotEmpty && p.username.toLowerCase() == currentUsername.toLowerCase()) return false;
+      return true;
+    }).toList();
+
+    if (others.isNotEmpty) return others.first;
+    return participants.first;
+  }
+
   factory ChatConversation.fromJson(
     Map<String, dynamic> json, {
     List<UserProfile> participants = const [],

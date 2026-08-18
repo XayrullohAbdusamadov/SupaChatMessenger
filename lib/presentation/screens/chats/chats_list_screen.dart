@@ -376,6 +376,8 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                       final conversation = chatProvider.conversations[index];
                       return ChatListItem(
                         conversation: conversation,
+                        currentUserId: currentUser.id,
+                        currentUsername: currentUser.username,
                         onTap: () {
                           chatProvider.openChat(conversation, currentUser.id);
                           Navigator.push(

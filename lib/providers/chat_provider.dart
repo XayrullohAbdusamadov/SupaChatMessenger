@@ -583,12 +583,27 @@ class ChatProvider extends ChangeNotifier {
           return;
         }
 
+        // Fetch sender's profile
+        UserProfile? senderProfile;
+        if (_supabaseService.isInitialized) {
+          senderProfile = await _supabaseService.fetchProfile(newMsg.senderId);
+        }
+
         // If chat is NOT currently open: update conversation list and show floating notification banner
         ChatConversation? conv;
 
         if (convIdx != -1) {
           final existing = _conversations[convIdx];
+          final updatedParticipants = List<UserProfile>.from(existing.participants);
+          final s = senderProfile;
+          if (s != null && !updatedParticipants.any((p) => p.id == s.id || p.username.toLowerCase() == s.username.toLowerCase())) {
+            updatedParticipants.add(s);
+          }
+
           final updated = existing.copyWith(
+            name: senderProfile?.fullName ?? existing.name,
+            avatarUrl: senderProfile?.avatarUrl ?? existing.avatarUrl,
+            participants: updatedParticipants,
             lastMessageText: newMsg.content.isNotEmpty ? newMsg.content : 'Media xabar',
             lastMessageType: newMsg.messageType,
             lastMessageAt: newMsg.createdAt,
@@ -599,11 +614,6 @@ class ChatProvider extends ChangeNotifier {
           conv = updated;
         } else {
           // New conversation from sender
-          UserProfile? senderProfile;
-          if (_supabaseService.isInitialized) {
-            senderProfile = await _supabaseService.fetchProfile(newMsg.senderId);
-          }
-
           final newConv = ChatConversation(
             id: newMsg.chatId,
             isGroup: false,
@@ -1045,7 +1055,7 @@ class ChatProvider extends ChangeNotifier {
       isGroup: false,
       name: contact.fullName,
       avatarUrl: contact.avatarUrl,
-      participants: [contact],
+      participants: currentUser != null ? [currentUser, contact] : [contact],
       lastMessageText: contact.about,
       lastMessageType: MessageType.text,
       lastMessageAt: DateTime.now(),

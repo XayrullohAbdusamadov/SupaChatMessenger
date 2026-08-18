@@ -6,17 +6,23 @@ import '../../../../data/models/chat_conversation.dart';
 
 class ChatListItem extends StatelessWidget {
   final ChatConversation conversation;
+  final String? currentUserId;
+  final String? currentUsername;
   final VoidCallback onTap;
 
   const ChatListItem({
     super.key,
     required this.conversation,
+    this.currentUserId,
+    this.currentUsername,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final displayName = conversation.getDisplayName(currentUserId, currentUsername: currentUsername);
+    final displayAvatar = conversation.getDisplayAvatar(currentUserId, currentUsername: currentUsername);
 
     return InkWell(
       onTap: onTap,
@@ -38,15 +44,15 @@ class ChatListItem extends StatelessWidget {
                   ),
                   child: ClipOval(
                     child: AvatarHelper.buildAvatarWidget(
-                      avatarUrl: conversation.avatarUrl,
-                      name: conversation.name,
+                      avatarUrl: displayAvatar,
+                      name: displayName,
                       radius: 26,
                     ),
                   ),
                 ),
                 if (!conversation.isGroup &&
                     conversation.participants.isNotEmpty &&
-                    conversation.participants.first.isOnline)
+                    conversation.participants.any((p) => p.isOnline && p.id != currentUserId))
                   Positioned(
                     right: 0,
                     bottom: 0,
@@ -77,7 +83,7 @@ class ChatListItem extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          conversation.name,
+                          displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
