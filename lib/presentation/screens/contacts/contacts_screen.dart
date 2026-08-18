@@ -25,6 +25,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
     super.dispose();
   }
 
+  void _openChat(BuildContext context, UserProfile contact, String currentUserId) {
+    final chatProvider = context.read<ChatProvider>();
+    chatProvider.saveRecentSearch(contact);
+    final chat = chatProvider.startDirectChat(contact);
+    chatProvider.openChat(chat, currentUserId);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatDetailScreen(conversation: chat),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
@@ -34,9 +47,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
     final filteredContacts = chatProvider.contacts.where((u) {
       if (_searchFilter.isEmpty) return true;
-      return u.fullName.toLowerCase().contains(_searchFilter.toLowerCase()) ||
-          u.username.toLowerCase().contains(_searchFilter.toLowerCase()) ||
-          (u.role != null && u.role!.toLowerCase().contains(_searchFilter.toLowerCase()));
+      final query = _searchFilter.toLowerCase().replaceAll('@', '');
+      return u.fullName.toLowerCase().contains(query) ||
+          u.username.toLowerCase().contains(query) ||
+          (u.role != null && u.role!.toLowerCase().contains(query));
     }).toList();
 
     return Scaffold(
@@ -81,13 +95,26 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 setState(() {
                   _searchFilter = val;
                 });
+                chatProvider.searchUsers(val);
               },
               decoration: InputDecoration(
-                hintText: 'Kontaktlarni qidirish...',
+                hintText: '@username yoki ism bo\'yicha qidiruv...',
                 prefixIcon: Icon(
                   Icons.search_rounded,
                   color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
                 ),
+                suffixIcon: _searchFilter.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {
+                            _searchFilter = '';
+                          });
+                          chatProvider.searchUsers('');
+                        },
+                      )
+                    : null,
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -119,10 +146,63 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ),
           const SizedBox(height: 24),
 
+          // QIDIRUV TARIXI (If search filter is empty & history exists)
+          if (_searchFilter.isEmpty && chatProvider.recentSearches.isNotEmpty) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildSectionHeader('QIDIRUV TARIXI', isDark),
+                GestureDetector(
+                  onTap: () => chatProvider.clearRecentSearches(),
+                  child: const Text(
+                    'Tozalash',
+                    style: TextStyle(fontSize: 12, color: Colors.redAccent, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...chatProvider.recentSearches.map((user) => Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppTheme.cardDark : AppTheme.surfaceLight,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: ListTile(
+                    dense: true,
+                    leading: AvatarHelper.buildAvatarWidget(
+                      avatarUrl: user.avatarUrl,
+                      name: user.fullName,
+                      radius: 18,
+                    ),
+                    title: Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('@${user.username}'),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                      onPressed: () => chatProvider.deleteRecentSearch(user.id),
+                    ),
+                    onTap: () => _openChat(context, user, currentUser.id),
+                  ),
+                )),
+            const SizedBox(height: 20),
+          ],
+
           // SECTION 1: MENING KONTAKTLARIM
           _buildSectionHeader('MENING KONTAKTLARIM', isDark),
           const SizedBox(height: 8),
-          ...filteredContacts.map((contact) => _buildContactTile(context, contact, currentUser.id, isDark)),
+          if (filteredContacts.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                'Kontaktlar topilmadi',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                ),
+              ),
+            )
+          else
+            ...filteredContacts.map((contact) => _buildContactTile(context, contact, currentUser.id, isDark)),
 
           const SizedBox(height: 24),
 
@@ -146,39 +226,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
             isDark: isDark,
           ),
 
-          const SizedBox(height: 24),
-
-          // SECTION 3: GLOBAL QIDIRUV
-          _buildSectionHeader('GLOBAL QIDIRUV', isDark),
-          const SizedBox(height: 16),
-          Center(
-            child: Column(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: isDark ? AppTheme.surfaceDark : AppTheme.inputBgLight,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.search_rounded,
-                    size: 28,
-                    color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Qidiruv uchun @username\nyoki ism kiriting',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 40),
         ],
       ),
@@ -198,8 +245,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Widget _buildContactTile(BuildContext context, UserProfile contact, String currentUserId, bool isDark) {
-    final chatProvider = context.read<ChatProvider>();
-
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -261,16 +306,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.chat_bubble_outline_rounded, color: AppTheme.primary, size: 20),
-            onPressed: () {
-              final chat = chatProvider.startDirectChat(contact);
-              chatProvider.openChat(chat, currentUserId);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ChatDetailScreen(conversation: chat),
-                ),
-              );
-            },
+            onPressed: () => _openChat(context, contact, currentUserId),
           ),
         ],
       ),

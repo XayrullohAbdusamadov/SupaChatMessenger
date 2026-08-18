@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
+import '../core/services/sound_service.dart';
 import '../core/services/supabase_service.dart';
 import '../core/utils/mock_data.dart';
 import '../core/utils/smart_reply_helper.dart';
@@ -20,6 +21,10 @@ class ChatProvider extends ChangeNotifier {
   List<UserProfile> _contacts = [];
   List<ChatMessage> _currentMessages = [];
   List<UserStory> _stories = [];
+  List<UserProfile> _recentSearches = [];
+  List<UserProfile> _sqlSearchResults = [];
+  bool _isSearchingUsers = false;
+
   final Set<String> _blockedUserIds = {};
   final Set<String> _viewedStoryIds = {};
   ChatConversation? _activeChat;
@@ -54,6 +59,10 @@ class ChatProvider extends ChangeNotifier {
 
   List<ChatMessage> get currentMessages => _currentMessages;
   List<UserStory> get stories => _stories;
+  List<UserProfile> get recentSearches => _recentSearches;
+  List<UserProfile> get sqlSearchResults => _sqlSearchResults;
+  bool get isSearchingUsers => _isSearchingUsers;
+
   Set<String> get blockedUserIds => _blockedUserIds;
   Set<String> get viewedStoryIds => _viewedStoryIds;
   ChatConversation? get activeChat => _activeChat;
@@ -71,11 +80,13 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> _loadInitialData() async {
-    _conversations = MockData.getInitialChats();
     _contacts = MockData.contacts;
     _initStories();
 
-    // Load blocked user ids from preferences
+    // Load saved conversations, recent searches, and blocked user ids
+    await _loadSavedConversations();
+    await _loadRecentSearches();
+
     final prefs = await SharedPreferences.getInstance();
     final savedBlocked = prefs.getStringList('blocked_user_ids') ?? [];
     _blockedUserIds.addAll(savedBlocked);
@@ -83,6 +94,120 @@ class ChatProvider extends ChangeNotifier {
     final savedViewed = prefs.getStringList('viewed_story_ids') ?? [];
     _viewedStoryIds.addAll(savedViewed);
 
+    notifyListeners();
+  }
+
+  Future<void> _loadSavedConversations() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString('saved_user_conversations');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List decoded = jsonDecode(jsonStr);
+        _conversations = decoded.map((j) => ChatConversation.fromJson(j)).toList();
+      } else {
+        _conversations = [];
+      }
+    } catch (e) {
+      debugPrint('Error loading saved conversations: $e');
+      _conversations = [];
+    }
+  }
+
+  Future<void> _saveConversations() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(_conversations.map((c) => c.toJson()).toList());
+      await prefs.setString('saved_user_conversations', encoded);
+    } catch (e) {
+      debugPrint('Error saving conversations: $e');
+    }
+  }
+
+  // SEARCH & RECENT SEARCH HISTORY SYSTEM
+  Future<void> _loadRecentSearches() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString('recent_searches_history');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List decoded = jsonDecode(jsonStr);
+        _recentSearches = decoded.map((j) => UserProfile.fromJson(j)).toList();
+      }
+    } catch (e) {
+      debugPrint('Error loading recent searches: $e');
+    }
+  }
+
+  Future<void> saveRecentSearch(UserProfile user) async {
+    _recentSearches.removeWhere((u) => u.id == user.id || u.username == user.username);
+    _recentSearches.insert(0, user);
+    if (_recentSearches.length > 25) {
+      _recentSearches = _recentSearches.sublist(0, 25);
+    }
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(_recentSearches.map((u) => u.toJson()).toList());
+      await prefs.setString('recent_searches_history', encoded);
+    } catch (e) {
+      debugPrint('Error saving recent searches: $e');
+    }
+  }
+
+  Future<void> deleteRecentSearch(String userId) async {
+    _recentSearches.removeWhere((u) => u.id == userId);
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(_recentSearches.map((u) => u.toJson()).toList());
+      await prefs.setString('recent_searches_history', encoded);
+    } catch (e) {
+      debugPrint('Error deleting recent search: $e');
+    }
+  }
+
+  Future<void> clearRecentSearches() async {
+    _recentSearches.clear();
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('recent_searches_history');
+    } catch (e) {
+      debugPrint('Error clearing recent searches: $e');
+    }
+  }
+
+  Future<void> searchUsers(String query) async {
+    final cleanQuery = query.trim().replaceAll('@', '').toLowerCase();
+    if (cleanQuery.isEmpty) {
+      _sqlSearchResults = [];
+      _isSearchingUsers = false;
+      notifyListeners();
+      return;
+    }
+
+    _isSearchingUsers = true;
+    notifyListeners();
+
+    List<UserProfile> results = [];
+    if (_supabaseService.isInitialized) {
+      results = await _supabaseService.searchUsers(cleanQuery);
+    }
+
+    // Fallback/combine with local users
+    final localMatches = _contacts.where((u) =>
+      u.username.toLowerCase().contains(cleanQuery) ||
+      u.fullName.toLowerCase().contains(cleanQuery) ||
+      (u.role != null && u.role!.toLowerCase().contains(cleanQuery))
+    ).toList();
+
+    for (final loc in localMatches) {
+      if (!results.any((r) => r.id == loc.id || r.username == loc.username)) {
+        results.add(loc);
+      }
+    }
+
+    _sqlSearchResults = results;
+    _isSearchingUsers = false;
     notifyListeners();
   }
 
@@ -105,24 +230,6 @@ class ChatProvider extends ChangeNotifier {
         mediaUrl: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=800&auto=format&fit=crop&q=80',
         caption: 'Tog\'lardagi ajoyib dam olish 🏔️',
         createdAt: DateTime.now().subtract(const Duration(hours: 3)),
-      ),
-      UserStory(
-        id: 'story-3',
-        userId: 'user-malika',
-        userName: 'Malika Karimova',
-        userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
-        mediaUrl: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=800&auto=format&fit=crop&q=80',
-        caption: 'Yangi loyiha start oldi! 🚀💻',
-        createdAt: DateTime.now().subtract(const Duration(hours: 6)),
-      ),
-      UserStory(
-        id: 'story-4',
-        userId: 'user-anvar',
-        userName: 'Anvar Temirov',
-        userAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&auto=format&fit=crop&q=80',
-        mediaUrl: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&auto=format&fit=crop&q=80',
-        caption: 'Sayohat taassurotlari ✈️🌍',
-        createdAt: DateTime.now().subtract(const Duration(hours: 10)),
       ),
     ];
   }
@@ -173,7 +280,6 @@ class ChatProvider extends ChangeNotifier {
     required String replyText,
     required String currentUserId,
   }) async {
-    // Find contact for story
     final contact = _contacts.firstWhere(
       (c) => c.id == story.userId,
       orElse: () => UserProfile(
@@ -228,6 +334,7 @@ class ChatProvider extends ChangeNotifier {
 
   void setSearchQuery(String query) {
     _searchQuery = query;
+    searchUsers(query);
     notifyListeners();
   }
 
@@ -258,31 +365,10 @@ class ChatProvider extends ChangeNotifier {
     final index = _conversations.indexWhere((c) => c.id == conversation.id);
     if (index != -1 && _conversations[index].unreadCount > 0) {
       _conversations[index] = _conversations[index].copyWith(unreadCount: 0);
+      _saveConversations();
     }
 
     await _loadMessagesFromLocalCache(conversation.id);
-
-    if (_currentMessages.isEmpty) {
-      if (conversation.id == 'chat-lola') {
-        _currentMessages = MockData.getLolaMessages();
-      } else {
-        _currentMessages = [
-          ChatMessage(
-            id: _uuid.v4(),
-            chatId: conversation.id,
-            senderId: conversation.participants.isNotEmpty
-                ? conversation.participants.first.id
-                : 'other-user',
-            content: conversation.lastMessageText ?? 'Salom! Qalaysiz?',
-            messageType: conversation.lastMessageType ?? MessageType.text,
-            status: MessageStatus.read,
-            createdAt: conversation.lastMessageAt,
-          ),
-        ];
-      }
-      await _saveMessagesToLocalCache(conversation.id);
-    }
-
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
@@ -303,9 +389,12 @@ class ChatProvider extends ChangeNotifier {
       if (jsonStr != null && jsonStr.isNotEmpty) {
         final List decoded = jsonDecode(jsonStr);
         _currentMessages = decoded.map((j) => ChatMessage.fromJson(j)).toList();
+      } else {
+        _currentMessages = [];
       }
     } catch (e) {
       debugPrint('Error loading cached messages: $e');
+      _currentMessages = [];
     }
   }
 
@@ -322,6 +411,9 @@ class ChatProvider extends ChangeNotifier {
   Function(ChatMessage message, ChatConversation conversation)? onIncomingNotification;
 
   void triggerNotification(ChatMessage message, ChatConversation conversation) {
+    // Play "tiq" notification sound
+    SoundService.instance.playTiqSound();
+
     if (_activeChat == null || _activeChat!.id != message.chatId) {
       onIncomingNotification?.call(message, conversation);
     }
@@ -338,18 +430,15 @@ class ChatProvider extends ChangeNotifier {
           _saveMessagesToLocalCache(newMsg.chatId);
           notifyListeners();
 
-          // Trigger top notification banner if outside this chat
-          if (_activeChat == null || _activeChat!.id != newMsg.chatId) {
-            final conv = _conversations.firstWhere(
-              (c) => c.id == newMsg.chatId,
-              orElse: () => ChatConversation(
-                id: newMsg.chatId,
-                name: 'SupaChat User',
-                participants: [],
-              ),
-            );
-            triggerNotification(newMsg, conv);
-          }
+          final conv = _conversations.firstWhere(
+            (c) => c.id == newMsg.chatId,
+            orElse: () => _activeChat ?? ChatConversation(
+              id: newMsg.chatId,
+              name: 'SupaChat User',
+              participants: [],
+            ),
+          );
+          triggerNotification(newMsg, conv);
         }
       },
     );
@@ -379,15 +468,20 @@ class ChatProvider extends ChangeNotifier {
         lastMessageAt: DateTime.now(),
         unreadCount: 0,
       );
+      _saveConversations();
     }
+    _saveMessagesToLocalCache(chatId);
     notifyListeners();
   }
 
   // DELETE MESSAGE
   void deleteMessage(String messageId) {
     _currentMessages.removeWhere((m) => m.id == messageId);
-    if (_activeChat != null && _currentMessages.isNotEmpty) {
-      _updateLastMessage(_currentMessages.last);
+    if (_activeChat != null) {
+      _saveMessagesToLocalCache(_activeChat!.id);
+      if (_currentMessages.isNotEmpty) {
+        _updateLastMessage(_currentMessages.last);
+      }
     }
     notifyListeners();
   }
@@ -403,6 +497,9 @@ class ChatProvider extends ChangeNotifier {
         currentList.add(emoji);
       }
       _currentMessages[idx] = _currentMessages[idx].copyWith(reactions: currentList);
+      if (_activeChat != null) {
+        _saveMessagesToLocalCache(_activeChat!.id);
+      }
       notifyListeners();
     }
   }
@@ -411,15 +508,8 @@ class ChatProvider extends ChangeNotifier {
   void deleteChatCompletely(String chatId) {
     final convIdx = _conversations.indexWhere((c) => c.id == chatId);
     if (convIdx != -1) {
-      final conv = _conversations[convIdx];
-      final participantIds = conv.participants.map((p) => p.id).toSet();
-      // Remove all stories associated with this contact/chat
-      _stories.removeWhere((s) => participantIds.contains(s.userId));
-      // Remove from contacts if direct chat
-      if (!conv.isGroup) {
-        _contacts.removeWhere((c) => participantIds.contains(c.id));
-      }
       _conversations.removeAt(convIdx);
+      _saveConversations();
     }
     if (_activeChat?.id == chatId) {
       closeChat();
@@ -441,6 +531,7 @@ class ChatProvider extends ChangeNotifier {
       if (_activeChat?.id == chatId) {
         _activeChat = _conversations[idx];
       }
+      _saveConversations();
       notifyListeners();
     }
   }
@@ -458,6 +549,7 @@ class ChatProvider extends ChangeNotifier {
       if (_activeChat?.id == chatId) {
         _activeChat = _conversations[idx];
       }
+      _saveConversations();
       notifyListeners();
     }
   }
@@ -474,6 +566,7 @@ class ChatProvider extends ChangeNotifier {
       if (_activeChat?.id == chatId) {
         _activeChat = _conversations[idx];
       }
+      _saveConversations();
       notifyListeners();
     }
   }
@@ -492,6 +585,9 @@ class ChatProvider extends ChangeNotifier {
       return;
     }
 
+    // Play "tiq" sound effect on sending message
+    SoundService.instance.playTiqSound();
+
     // If editing existing message
     if (_editingMessage != null) {
       final editIdx = _currentMessages.indexWhere((m) => m.id == _editingMessage!.id);
@@ -502,6 +598,9 @@ class ChatProvider extends ChangeNotifier {
         );
       }
       _editingMessage = null;
+      if (_activeChat != null) {
+        _saveMessagesToLocalCache(_activeChat!.id);
+      }
       notifyListeners();
       return;
     }
@@ -523,11 +622,20 @@ class ChatProvider extends ChangeNotifier {
     );
 
     _currentMessages.add(newMsg);
+
+    // Ensure active chat is registered in conversations list
+    final convIdx = _conversations.indexWhere((c) => c.id == _activeChat!.id);
+    if (convIdx == -1) {
+      _conversations.insert(0, _activeChat!);
+    }
+
     _updateLastMessage(newMsg);
     _replyingToMessage = null;
+
     if (_activeChat != null) {
       _saveMessagesToLocalCache(_activeChat!.id);
     }
+    await _saveConversations();
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
@@ -552,6 +660,7 @@ class ChatProvider extends ChangeNotifier {
         lastMessageType: msg.messageType,
         lastMessageAt: msg.createdAt,
       );
+      _saveConversations();
     }
   }
 
@@ -563,7 +672,6 @@ class ChatProvider extends ChangeNotifier {
         ? _activeChat!.participants.first
         : UserProfile(id: 'demo-user', username: 'user', fullName: _activeChat!.name);
 
-    // If target contact is blocked, do not reply
     if (_blockedUserIds.contains(targetContact.id)) return;
 
     Future.delayed(const Duration(milliseconds: 1200), () {
@@ -586,6 +694,7 @@ class ChatProvider extends ChangeNotifier {
 
       _currentMessages.add(replyMsg);
       _updateLastMessage(replyMsg);
+      _saveMessagesToLocalCache(_activeChat!.id);
 
       for (int i = 0; i < _currentMessages.length; i++) {
         if (_currentMessages[i].senderId == userMsg.senderId) {
@@ -593,6 +702,8 @@ class ChatProvider extends ChangeNotifier {
         }
       }
 
+      // Play notification "tiq" sound
+      SoundService.instance.playTiqSound();
       notifyListeners();
     });
   }
@@ -686,6 +797,7 @@ class ChatProvider extends ChangeNotifier {
     );
 
     _conversations.insert(0, newGroup);
+    _saveConversations();
     notifyListeners();
   }
 
@@ -700,7 +812,7 @@ class ChatProvider extends ChangeNotifier {
     }
 
     final newChat = ChatConversation(
-      id: 'chat-${contact.username}',
+      id: 'chat-${contact.id}',
       isGroup: false,
       name: contact.fullName,
       avatarUrl: contact.avatarUrl,
@@ -711,8 +823,6 @@ class ChatProvider extends ChangeNotifier {
       unreadCount: 0,
     );
 
-    _conversations.insert(0, newChat);
-    notifyListeners();
     return newChat;
   }
 }
