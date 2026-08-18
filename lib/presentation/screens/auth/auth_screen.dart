@@ -54,7 +54,7 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!mounted) return;
 
     if (success) {
-      context.read<ChatProvider>().loadUserData(auth.currentUser.id);
+      context.read<ChatProvider>().loadUserData(auth.currentUser.id, username: auth.currentUser.username);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

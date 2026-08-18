@@ -127,6 +127,7 @@ class SupabaseService {
   Future<UserProfile?> fetchProfile(String userId) async {
     if (!isInitialized) return null;
     try {
+      // 1. Try by id
       final response = await _client!
           .from('profiles')
           .select()
@@ -135,6 +136,18 @@ class SupabaseService {
 
       if (response != null) {
         return UserProfile.fromJson(response);
+      }
+
+      // 2. Try by username
+      final clean = userId.replaceAll('user-', '').trim().toLowerCase();
+      final responseUser = await _client!
+          .from('profiles')
+          .select()
+          .eq('username', clean)
+          .maybeSingle();
+
+      if (responseUser != null) {
+        return UserProfile.fromJson(responseUser);
       }
     } catch (e) {
       debugPrint('Error fetching profile: $e');
@@ -159,6 +172,21 @@ class SupabaseService {
       debugPrint('Error fetching profile by username: $e');
     }
     return null;
+  }
+
+  Future<List<ChatMessage>> fetchRecentGlobalMessages() async {
+    if (!isInitialized) return [];
+    try {
+      final response = await _client!
+          .from('messages')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(30);
+
+      return (response as List).map((j) => ChatMessage.fromJson(j)).toList();
+    } catch (e) {
+      return [];
+    }
   }
 
   Future<bool> updateProfile(UserProfile profile) async {
