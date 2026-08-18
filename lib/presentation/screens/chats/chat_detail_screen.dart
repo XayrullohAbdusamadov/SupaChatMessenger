@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
+import '../../../core/services/call_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/avatar_helper.dart';
 import '../../../data/models/chat_conversation.dart';
@@ -85,87 +85,49 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return false;
   }
 
-  // 1. NATIVE VOICE CALL HANDLER
-  Future<void> _makeNativePhoneCall(UserProfile contact) async {
-    final phone = contact.phoneNumber.replaceAll(' ', '').trim();
-    final Uri url = Uri.parse('tel:$phone');
-    try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Telefon xizmatiga ulanib bo'lmadi: $phone")),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Qo'ng'iroq qilinmoqda: $phone")),
-        );
-      }
-    }
+  // 2. VIDEO & AUDIO CALL HANDLERS
+  void _startVideoCall(UserProfile contact, ChatConversation activeConv, UserProfile currentUser) {
+    CallService.instance.startCall(
+      caller: currentUser,
+      receiver: contact,
+      chatId: activeConv.id,
+      isVideo: true,
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallOverlay(
+          contactName: contact.fullName,
+          contactAvatarUrl: contact.avatarUrl,
+          contact: contact,
+          isVideoCall: true,
+          chatId: activeConv.id,
+        ),
+      ),
+    );
   }
 
-  // 2. VIDEO CALL HANDLER WITH OFFLINE CHECK
-  void _startVideoCall(UserProfile contact) {
-    if (contact.isOnline) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => CallOverlay(
-            contact: contact,
-            isVideoCall: true,
-          ),
+  void _startAudioCall(UserProfile contact, ChatConversation activeConv, UserProfile currentUser) {
+    CallService.instance.startCall(
+      caller: currentUser,
+      receiver: contact,
+      chatId: activeConv.id,
+      isVideo: false,
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallOverlay(
+          contactName: contact.fullName,
+          contactAvatarUrl: contact.avatarUrl,
+          contact: contact,
+          isVideoCall: false,
+          chatId: activeConv.id,
         ),
-      );
-    } else {
-      // OFFLINE FALLBACK DIALOG
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          icon: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.orange.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.videocam_off_rounded, color: Colors.orange, size: 36),
-          ),
-          title: const Text('Foydalanuvchi tarmoqda emas', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          content: Text(
-            '${contact.fullName} hozirda oflayn bo\'lganligi sababli video qo\'ng\'iroq qilib bo\'lmaydi.\n\nIltimos oddiy qo\'ng\'iroq tizimidan foydalaning.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 14, height: 1.4),
-          ),
-          actionsAlignment: MainAxisAlignment.spaceEvenly,
-          actions: [
-            OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Bekor qilish'),
-            ),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF10B981),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              icon: const Icon(Icons.phone_rounded, size: 18),
-              label: const Text('Oddiy qo\'ng\'iroq'),
-              onPressed: () {
-                Navigator.pop(ctx);
-                _makeNativePhoneCall(contact);
-              },
-            ),
-          ],
-        ),
-      );
-    }
+      ),
+    );
   }
 
   void _confirmDeleteChat(BuildContext context, ChatProvider chatProvider) {
@@ -266,6 +228,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
+        final authProvider = context.read<AuthProvider>();
         return Container(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
           decoration: BoxDecoration(
@@ -408,7 +371,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     color: Colors.green,
                     onTap: () {
                       Navigator.pop(ctx);
-                      _makeNativePhoneCall(contact);
+                      _startAudioCall(contact, conversation, authProvider.currentUser);
                     },
                   ),
                   _buildProfileActionButton(
@@ -417,7 +380,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     color: AppTheme.primary,
                     onTap: () {
                       Navigator.pop(ctx);
-                      _startVideoCall(contact);
+                      _startVideoCall(contact, conversation, authProvider.currentUser);
                     },
                   ),
                   _buildProfileActionButton(
@@ -608,17 +571,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
         ),
         actions: [
-          // Video Call Icon -> Full screen interactive video call / offline check
+          // Video Call Icon -> Full screen interactive video call
           IconButton(
             icon: const Icon(Icons.videocam_outlined),
             tooltip: 'Video qo\'ng\'iroq',
-            onPressed: () => _startVideoCall(contact),
+            onPressed: () => _startVideoCall(contact, activeConv, authProvider.currentUser),
           ),
-          // Voice Call Icon -> Native phone call service
+          // Voice Call Icon -> Interactive audio call
           IconButton(
             icon: const Icon(Icons.phone_outlined),
-            tooltip: 'Oddiy qo\'ng\'iroq',
-            onPressed: () => _makeNativePhoneCall(contact),
+            tooltip: 'Ovozli qo\'ng\'iroq',
+            onPressed: () => _startAudioCall(contact, activeConv, authProvider.currentUser),
           ),
           // More Menu (3 dots)
           PopupMenuButton<String>(
@@ -810,12 +773,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               );
               Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
             },
-            onSendVoice: (durationSeconds) {
-              chatProvider.sendMessage(
+            onSendVoice: (filePath, durationSeconds) {
+              chatProvider.sendVoiceMessage(
                 senderId: currentUserId,
-                content: 'Voice message',
-                type: MessageType.voice,
-                voiceDuration: durationSeconds,
+                filePath: filePath,
+                durationSeconds: durationSeconds,
               );
               Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
             },

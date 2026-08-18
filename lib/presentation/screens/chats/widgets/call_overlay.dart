@@ -1,17 +1,29 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
+import '../../../../core/services/call_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../data/models/chat_message.dart';
 import '../../../../data/models/user_profile.dart';
+import '../../../../providers/chat_provider.dart';
 
 class CallOverlay extends StatefulWidget {
-  final UserProfile contact;
+  final String? callId;
+  final String contactName;
+  final String? contactAvatarUrl;
   final bool isVideoCall;
+  final String chatId;
+  final UserProfile? contact;
 
   const CallOverlay({
     super.key,
-    required this.contact,
+    this.callId,
+    required this.contactName,
+    this.contactAvatarUrl,
     required this.isVideoCall,
+    required this.chatId,
+    this.contact,
   });
 
   @override
@@ -22,6 +34,7 @@ class _CallOverlayState extends State<CallOverlay> {
   bool _isMuted = false;
   bool _isSpeakerOn = true;
   bool _isVideoOff = false;
+  bool _isFrontCamera = true;
   int _seconds = 0;
   Timer? _timer;
 
@@ -49,6 +62,31 @@ class _CallOverlayState extends State<CallOverlay> {
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  void _handleEndCall() {
+    _timer?.cancel();
+    final durationStr = _formatCallTime(_seconds);
+
+    // Call service end call
+    CallService.instance.endCall();
+
+    // Log call event in chat history
+    try {
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      final currentUserId = chatProvider.currentActiveUserId ?? 'user';
+      final callTypeText = widget.isVideoCall ? 'Video qo\'ng\'iroq' : 'Ovozli qo\'ng\'iroq';
+
+      chatProvider.sendMessage(
+        senderId: currentUserId,
+        content: '📞 $callTypeText — $durationStr',
+        type: MessageType.text,
+      );
+    } catch (_) {}
+
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -56,7 +94,7 @@ class _CallOverlayState extends State<CallOverlay> {
       body: SafeArea(
         child: Stack(
           children: [
-            // BACKGROUND VIDEO OR PATTERN
+            // BACKGROUND VIDEO OR CAMERA SIMULATION
             if (widget.isVideoCall && !_isVideoOff)
               Positioned.fill(
                 child: Container(
@@ -64,16 +102,71 @@ class _CallOverlayState extends State<CallOverlay> {
                   child: Stack(
                     children: [
                       Center(
-                        child: widget.contact.avatarUrl != null
+                        child: widget.contactAvatarUrl != null
                             ? CachedNetworkImage(
-                                imageUrl: widget.contact.avatarUrl!,
+                                imageUrl: widget.contactAvatarUrl!,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
                                 height: double.infinity,
+                                errorWidget: (context, url, error) => const Icon(Icons.person, size: 100, color: Colors.white24),
                               )
                             : const Icon(Icons.person, size: 100, color: Colors.white24),
                       ),
-                      Container(color: Colors.black.withValues(alpha: 0.6)),
+                      Container(color: Colors.black.withValues(alpha: 0.5)),
+
+                      // Floating Self-Camera PiP Preview
+                      Positioned(
+                        top: 20,
+                        right: 20,
+                        child: Container(
+                          width: 100,
+                          height: 140,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[900],
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: AppTheme.primary, width: 2),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.5),
+                                blurRadius: 10,
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Stack(
+                              children: [
+                                Center(
+                                  child: Icon(
+                                    _isFrontCamera ? Icons.face_rounded : Icons.camera_alt_rounded,
+                                    color: Colors.white38,
+                                    size: 36,
+                                  ),
+                                ),
+                                Positioned(
+                                  bottom: 6,
+                                  right: 6,
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        _isFrontCamera = !_isFrontCamera;
+                                      });
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.black54,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.flip_camera_ios_rounded, color: Colors.white, size: 14),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -105,72 +198,66 @@ class _CallOverlayState extends State<CallOverlay> {
                 ),
                 const SizedBox(height: 40),
 
-                // AVATAR & NAME
-                Center(
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: AppTheme.primary, width: 3),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.primary.withValues(alpha: 0.3),
-                              blurRadius: 20,
-                              spreadRadius: 5,
+                // AVATAR & NAME (Only if audio call or video is off)
+                if (!widget.isVideoCall || _isVideoOff)
+                  Center(
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 120,
+                          height: 120,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: AppTheme.primary, width: 3),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppTheme.primary.withValues(alpha: 0.3),
+                                blurRadius: 20,
+                                spreadRadius: 5,
+                              ),
+                            ],
+                          ),
+                          child: ClipOval(
+                            child: widget.contactAvatarUrl != null
+                                ? CachedNetworkImage(
+                                    imageUrl: widget.contactAvatarUrl!,
+                                    fit: BoxFit.cover,
+                                    errorWidget: (context, url, error) => _buildAvatarPlaceholder(),
+                                  )
+                                : _buildAvatarPlaceholder(),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          widget.contactName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        if (widget.contact != null)
+                          Text(
+                            '@${widget.contact!.username}',
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 14,
                             ),
-                          ],
-                        ),
-                        child: ClipOval(
-                          child: widget.contact.avatarUrl != null
-                              ? CachedNetworkImage(
-                                  imageUrl: widget.contact.avatarUrl!,
-                                  fit: BoxFit.cover,
-                                )
-                              : Center(
-                                  child: Text(
-                                    widget.contact.fullName[0],
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 48,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        widget.contact.fullName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '@${widget.contact.username}',
-                        style: const TextStyle(
-                          color: Colors.white60,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
+                          ),
+                      ],
+                    ),
                   ),
-                ),
 
                 const Spacer(),
 
                 // CALL CONTROLS BAR
                 Container(
                   margin: const EdgeInsets.all(24),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(30),
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(32),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -179,7 +266,8 @@ class _CallOverlayState extends State<CallOverlay> {
                       _buildControlButton(
                         icon: _isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
                         isActive: _isMuted,
-                        activeColor: Colors.red,
+                        activeColor: AppTheme.error,
+                        tooltip: _isMuted ? 'Mikrofonni yoqish' : 'Mikrofonni o\'chirish',
                         onTap: () {
                           setState(() {
                             _isMuted = !_isMuted;
@@ -192,6 +280,7 @@ class _CallOverlayState extends State<CallOverlay> {
                         icon: _isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
                         isActive: _isSpeakerOn,
                         activeColor: AppTheme.primary,
+                        tooltip: _isSpeakerOn ? 'Ovoz karnayda' : 'Oddiy ovoz',
                         onTap: () {
                           setState(() {
                             _isSpeakerOn = !_isSpeakerOn;
@@ -199,12 +288,27 @@ class _CallOverlayState extends State<CallOverlay> {
                         },
                       ),
 
+                      // FLIP CAMERA (IF VIDEO CALL)
+                      if (widget.isVideoCall)
+                        _buildControlButton(
+                          icon: Icons.flip_camera_ios_rounded,
+                          isActive: false,
+                          activeColor: AppTheme.primary,
+                          tooltip: 'Kamerani almashtirish',
+                          onTap: () {
+                            setState(() {
+                              _isFrontCamera = !_isFrontCamera;
+                            });
+                          },
+                        ),
+
                       // VIDEO TOGGLE (IF VIDEO CALL)
                       if (widget.isVideoCall)
                         _buildControlButton(
                           icon: _isVideoOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
                           isActive: _isVideoOff,
                           activeColor: Colors.amber,
+                          tooltip: _isVideoOff ? 'Kamerani yoqish' : 'Kamerani o\'chirish',
                           onTap: () {
                             setState(() {
                               _isVideoOff = !_isVideoOff;
@@ -214,15 +318,12 @@ class _CallOverlayState extends State<CallOverlay> {
 
                       // END CALL (RED)
                       GestureDetector(
-                        onTap: () {
-                          _timer?.cancel();
-                          Navigator.pop(context);
-                        },
+                        onTap: _handleEndCall,
                         child: Container(
-                          width: 56,
-                          height: 56,
+                          width: 54,
+                          height: 54,
                           decoration: const BoxDecoration(
-                            color: Colors.red,
+                            color: AppTheme.error,
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
@@ -235,10 +336,26 @@ class _CallOverlayState extends State<CallOverlay> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatarPlaceholder() {
+    return Container(
+      color: AppTheme.primary,
+      child: Center(
+        child: Text(
+          widget.contactName.isNotEmpty ? widget.contactName[0].toUpperCase() : 'U',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 48,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
     );
@@ -249,20 +366,24 @@ class _CallOverlayState extends State<CallOverlay> {
     required bool isActive,
     required Color activeColor,
     required VoidCallback onTap,
+    String? tooltip,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 50,
-        height: 50,
-        decoration: BoxDecoration(
-          color: isActive ? activeColor : Colors.white24,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          icon,
-          color: Colors.white,
-          size: 24,
+    return Tooltip(
+      message: tooltip ?? '',
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: isActive ? activeColor : Colors.white24,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: Colors.white,
+            size: 22,
+          ),
         ),
       ),
     );

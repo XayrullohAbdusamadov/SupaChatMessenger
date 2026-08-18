@@ -254,15 +254,59 @@ CREATE POLICY "stories_delete_policy" ON public.stories FOR DELETE USING (true);
 
 CREATE POLICY "blocked_users_all_policy" ON public.blocked_users FOR ALL USING (true);
 
--- 13. STORAGE BUCKETLARINI SOZLASH
+-- 13. CALLS (OVOZLI VA VIDEO QO'NG'IROQLAR JADVALI)
+CREATE TABLE IF NOT EXISTS public.calls (
+    id TEXT PRIMARY KEY,
+    caller_id TEXT NOT NULL,
+    caller_name TEXT NOT NULL,
+    caller_avatar_url TEXT,
+    receiver_id TEXT NOT NULL,
+    receiver_name TEXT NOT NULL,
+    receiver_avatar_url TEXT,
+    chat_id TEXT NOT NULL,
+    call_type VARCHAR(20) DEFAULT 'video', -- 'video' | 'audio'
+    status VARCHAR(20) DEFAULT 'ringing',  -- 'ringing' | 'accepted' | 'rejected' | 'ended' | 'missed'
+    started_at TIMESTAMPTZ,
+    ended_at TIMESTAMPTZ,
+    duration INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE IF EXISTS public.calls DROP CONSTRAINT IF EXISTS calls_caller_id_fkey;
+ALTER TABLE IF EXISTS public.calls DROP CONSTRAINT IF EXISTS calls_receiver_id_fkey;
+
+ALTER TABLE public.calls ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "calls_select_policy" ON public.calls;
+DROP POLICY IF EXISTS "calls_insert_policy" ON public.calls;
+DROP POLICY IF EXISTS "calls_update_policy" ON public.calls;
+CREATE POLICY "calls_select_policy" ON public.calls FOR SELECT USING (true);
+CREATE POLICY "calls_insert_policy" ON public.calls FOR INSERT WITH CHECK (true);
+CREATE POLICY "calls_update_policy" ON public.calls FOR UPDATE USING (true);
+
+ALTER TABLE public.calls REPLICA IDENTITY FULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+          AND schemaname = 'public' 
+          AND tablename = 'calls'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.calls;
+    END IF;
+END $$;
+
+-- 14. STORAGE BUCKETLARINI SOZLASH
 INSERT INTO storage.buckets (id, name, public) 
 VALUES 
   ('avatars', 'avatars', true),
   ('chat-media', 'chat-media', true),
+  ('voice-messages', 'voice-messages', true),
   ('stories', 'stories', true)
 ON CONFLICT (id) DO NOTHING;
 
--- 14. STORAGE OBJECT RLS POLICIES (Rasm va fayllarni yuklash va ko'rish ruxsatlari)
+-- 15. STORAGE OBJECT RLS POLICIES (Rasm, ovoz va fayllarni yuklash va ko'rish ruxsatlari)
 DROP POLICY IF EXISTS "Public storage read" ON storage.objects;
 DROP POLICY IF EXISTS "Public storage insert" ON storage.objects;
 DROP POLICY IF EXISTS "Public storage update" ON storage.objects;
@@ -272,3 +316,4 @@ CREATE POLICY "Public storage read" ON storage.objects FOR SELECT USING (true);
 CREATE POLICY "Public storage insert" ON storage.objects FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public storage update" ON storage.objects FOR UPDATE USING (true);
 CREATE POLICY "Public storage delete" ON storage.objects FOR DELETE USING (true);
+

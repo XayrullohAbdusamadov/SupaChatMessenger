@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/services/call_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/avatar_helper.dart';
 import '../../data/models/chat_conversation.dart';
@@ -8,6 +9,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
 import 'chats/chat_detail_screen.dart';
 import 'chats/chats_list_screen.dart';
+import 'chats/widgets/incoming_call_dialog.dart';
 import 'contacts/contacts_screen.dart';
 import 'profile/profile_settings_screen.dart';
 
@@ -20,6 +22,7 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
+  bool _isShowingIncomingCallDialog = false;
 
   final List<Widget> _screens = const [
     ChatsListScreen(),
@@ -31,18 +34,37 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    CallService.instance.addListener(_onCallServiceChanged);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = context.read<AuthProvider>();
       final chatProvider = context.read<ChatProvider>();
       chatProvider.onIncomingNotification = _showTopNotificationBanner;
       if (authProvider.currentUser.id.isNotEmpty) {
         chatProvider.loadUserData(authProvider.currentUser.id, username: authProvider.currentUser.username);
+        CallService.instance.initializeForUser(authProvider.currentUser.id);
       }
     });
   }
 
+  void _onCallServiceChanged() {
+    if (!mounted) return;
+    final callService = CallService.instance;
+    if (callService.isIncoming && callService.currentCall != null && !_isShowingIncomingCallDialog) {
+      _isShowingIncomingCallDialog = true;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => IncomingCallDialog(call: callService.currentCall!),
+      ).then((_) {
+        _isShowingIncomingCallDialog = false;
+      });
+    }
+  }
+
   @override
   void dispose() {
+    CallService.instance.removeListener(_onCallServiceChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1163,6 +1164,71 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  // Send real recorded voice message
+  Future<void> sendVoiceMessage({
+    required String senderId,
+    required String filePath,
+    required int durationSeconds,
+  }) async {
+    if (_activeChat == null) return;
+
+    final voiceId = _uuid.v4();
+    final newMsg = ChatMessage(
+      id: voiceId,
+      chatId: _activeChat!.id,
+      senderId: senderId,
+      content: '🎤 Ovozli xabar (${durationSeconds}s)',
+      messageType: MessageType.voice,
+      mediaUrl: filePath,
+      voiceDuration: durationSeconds,
+      status: MessageStatus.sending,
+      createdAt: DateTime.now(),
+    );
+
+    _currentMessages.add(newMsg);
+    final convIdx = _conversations.indexWhere((c) => c.id == _activeChat!.id);
+    if (convIdx == -1) {
+      _conversations.insert(0, _activeChat!);
+    }
+    _updateLastMessage(newMsg);
+    _saveMessagesToLocalCache(_activeChat!.id);
+    await _saveConversations();
+    notifyListeners();
+
+    if (_supabaseService.isInitialized) {
+      String? uploadedUrl;
+      try {
+        final file = File(filePath);
+        if (file.existsSync()) {
+          final bytes = await file.readAsBytes();
+          uploadedUrl = await _supabaseService.uploadFile(
+            bucketName: 'chat-media',
+            filePath: 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a',
+            fileBytes: bytes,
+            contentType: 'audio/mp4',
+          );
+        }
+      } catch (e) {
+        debugPrint('Error uploading voice message: $e');
+      }
+
+      final finalMsg = newMsg.copyWith(
+        mediaUrl: uploadedUrl ?? filePath,
+      );
+
+      final sent = await _supabaseService.sendMessage(finalMsg);
+      final idx = _currentMessages.indexWhere((m) => m.id == voiceId);
+      if (idx != -1) {
+        _currentMessages[idx] = _currentMessages[idx].copyWith(
+          mediaUrl: uploadedUrl ?? filePath,
+          status: sent != null ? MessageStatus.sent : MessageStatus.delivered,
+        );
+        _saveMessagesToLocalCache(_activeChat!.id);
+        notifyListeners();
+      }
+    }
+  }
+
   // Voice note play/pause toggle with AudioPlayer
   Future<void> togglePlayVoice(String msgId, int durationSeconds) async {
     if (_currentlyPlayingVoiceMsgId == msgId && _isVoicePlaying) {
@@ -1182,10 +1248,27 @@ class ChatProvider extends ChangeNotifier {
 
     await _audioPlayer?.stop();
     await SoundService.instance.stopVoicePlayback();
+    _audioPlayer ??= AudioPlayer();
     _currentlyPlayingVoiceMsgId = msgId;
     _isVoicePlaying = true;
     _voiceProgress = 0.0;
     notifyListeners();
+
+    _audioPlayer!.onPositionChanged.listen((pos) {
+      if (_currentlyPlayingVoiceMsgId == msgId && durationSeconds > 0) {
+        _voiceProgress = (pos.inMilliseconds / (durationSeconds * 1000)).clamp(0.0, 1.0);
+        notifyListeners();
+      }
+    });
+
+    _audioPlayer!.onPlayerComplete.listen((_) {
+      if (_currentlyPlayingVoiceMsgId == msgId) {
+        _isVoicePlaying = false;
+        _voiceProgress = 0.0;
+        _currentlyPlayingVoiceMsgId = null;
+        notifyListeners();
+      }
+    });
 
     final msg = _currentMessages.firstWhere(
       (m) => m.id == msgId,
@@ -1199,8 +1282,12 @@ class ChatProvider extends ChangeNotifier {
     );
 
     try {
-      if (msg.mediaUrl != null && msg.mediaUrl!.startsWith('http')) {
-        await _audioPlayer!.play(UrlSource(msg.mediaUrl!));
+      if (msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) {
+        if (msg.mediaUrl!.startsWith('http')) {
+          await _audioPlayer!.play(UrlSource(msg.mediaUrl!));
+        } else {
+          await _audioPlayer!.play(DeviceFileSource(msg.mediaUrl!));
+        }
       } else {
         await SoundService.instance.playVoiceTone(durationSeconds);
         _simulateVoiceProgress(msgId, durationSeconds);

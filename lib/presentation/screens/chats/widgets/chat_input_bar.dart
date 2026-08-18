@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../../core/services/voice_recording_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../data/models/chat_message.dart';
 import 'sticker_picker_sheet.dart';
@@ -14,7 +16,7 @@ class ChatInputBar extends StatefulWidget {
   final VoidCallback onCancelReplyOrEdit;
   final Function(String text) onSendText;
   final Function(String path, Uint8List? bytes, String name, int size, MessageType type) onSendMedia;
-  final Function(int durationSeconds) onSendVoice;
+  final Function(String filePath, int durationSeconds) onSendVoice;
 
   const ChatInputBar({
     super.key,
@@ -35,9 +37,13 @@ class ChatInputBar extends StatefulWidget {
 class _ChatInputBarState extends State<ChatInputBar> {
   final TextEditingController _textController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  final VoiceRecordingService _voiceService = VoiceRecordingService.instance;
   bool _hasText = false;
   bool _isRecordingVoice = false;
   int _recordingSeconds = 0;
+  Timer? _recordingTimer;
+  double _dragOffset = 0.0;
+  bool _isCancelled = false;
 
   @override
   void initState() {
@@ -184,7 +190,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                       label: 'Ovoz',
                       onTap: () {
                         Navigator.pop(ctx);
-                        _simulateVoiceRecording();
+                        _startVoiceRecording();
                       },
                     ),
                   ],
@@ -290,36 +296,67 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
   }
 
-  void _simulateVoiceRecording() {
+  Future<void> _startVoiceRecording() async {
+    final started = await _voiceService.startRecording();
+    if (!started) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mikrofon ruxsati berilmadi. Sozlamalardan mikrofonni yoqing.'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
     setState(() {
       _isRecordingVoice = true;
       _recordingSeconds = 0;
+      _dragOffset = 0.0;
+      _isCancelled = false;
     });
 
-    void tick() {
-      if (!_isRecordingVoice) return;
+    _recordingTimer?.cancel();
+    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!_isRecordingVoice) {
+        timer.cancel();
+        return;
+      }
       setState(() {
         _recordingSeconds++;
       });
-      Future.delayed(const Duration(seconds: 1), tick);
-    }
-
-    Future.delayed(const Duration(seconds: 1), tick);
-  }
-
-  void _finishVoiceRecording() {
-    final duration = _recordingSeconds > 0 ? _recordingSeconds : 10;
-    setState(() {
-      _isRecordingVoice = false;
-      _recordingSeconds = 0;
     });
-    widget.onSendVoice(duration);
   }
 
-  void _cancelVoiceRecording() {
+  Future<void> _finishVoiceRecording() async {
+    _recordingTimer?.cancel();
+    if (!_isRecordingVoice) return;
+
+    final result = await _voiceService.stopRecording();
     setState(() {
       _isRecordingVoice = false;
       _recordingSeconds = 0;
+      _dragOffset = 0.0;
+      _isCancelled = false;
+    });
+
+    if (result.path != null && result.durationSeconds > 0) {
+      HapticFeedback.lightImpact();
+      widget.onSendVoice(result.path!, result.durationSeconds);
+    }
+  }
+
+  Future<void> _cancelVoiceRecording() async {
+    _recordingTimer?.cancel();
+    await _voiceService.cancelRecording();
+    HapticFeedback.heavyImpact();
+    setState(() {
+      _isRecordingVoice = false;
+      _recordingSeconds = 0;
+      _dragOffset = 0.0;
+      _isCancelled = false;
     });
   }
 
@@ -434,31 +471,79 @@ class _ChatInputBarState extends State<ChatInputBar> {
             // RECORDING VOICE BAR OR NORMAL INPUT BAR
             if (_isRecordingVoice)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: AppTheme.error.withValues(alpha: 0.1),
+                  color: _isCancelled
+                      ? Colors.grey.withValues(alpha: 0.15)
+                      : AppTheme.error.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: _isCancelled ? Colors.grey : AppTheme.error.withValues(alpha: 0.3),
+                    width: 1,
+                  ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.mic_rounded, color: AppTheme.error, size: 22),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Ovoz yozilmoqda: 0:${_recordingSeconds.toString().padLeft(2, '0')}',
-                      style: const TextStyle(
+                    // Flashing red recording dot
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
                         color: AppTheme.error,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
+                        shape: BoxShape.circle,
                       ),
                     ),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: _cancelVoiceRecording,
-                      child: const Text('Bekor qilish', style: TextStyle(color: Colors.grey)),
+                    const SizedBox(width: 8),
+                    Text(
+                      '0:${_recordingSeconds.toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        color: AppTheme.error,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
                     ),
+                    const SizedBox(width: 12),
+
+                    // Slide to cancel hint with animated chevron
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.chevron_left_rounded,
+                            size: 18,
+                            color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                          ),
+                          Text(
+                            'Bekor qilish uchun suring',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Cancel button
                     IconButton(
-                      icon: const Icon(Icons.send_rounded, color: AppTheme.primary),
-                      onPressed: _finishVoiceRecording,
+                      icon: const Icon(Icons.delete_outline_rounded, color: AppTheme.error, size: 22),
+                      tooltip: 'Bekor qilish',
+                      onPressed: _cancelVoiceRecording,
+                    ),
+
+                    // Send / Stop button
+                    GestureDetector(
+                      onTap: _finishVoiceRecording,
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                      ),
                     ),
                   ],
                 ),
@@ -523,9 +608,35 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   ),
                   const SizedBox(width: 8),
 
-                  // Mic / Send Action Circle Button
+                  // Mic / Send Action Circle Button with Press & Hold + Slide-to-cancel gestures
                   GestureDetector(
-                    onTap: _hasText ? _handleSend : _simulateVoiceRecording,
+                    onTap: _hasText ? _handleSend : _startVoiceRecording,
+                    onLongPressStart: _hasText
+                        ? null
+                        : (_) {
+                            _startVoiceRecording();
+                          },
+                    onLongPressMoveUpdate: _hasText
+                        ? null
+                        : (details) {
+                            if (!_isRecordingVoice) return;
+                            _dragOffset = details.offsetFromOrigin.dx;
+                            if (details.offsetFromOrigin.dx < -70 && !_isCancelled) {
+                              setState(() {
+                                _isCancelled = true;
+                              });
+                              HapticFeedback.mediumImpact();
+                            }
+                          },
+                    onLongPressEnd: _hasText
+                        ? null
+                        : (_) {
+                            if (_isCancelled || _dragOffset < -70) {
+                              _cancelVoiceRecording();
+                            } else {
+                              _finishVoiceRecording();
+                            }
+                          },
                     child: Container(
                       width: 42,
                       height: 42,

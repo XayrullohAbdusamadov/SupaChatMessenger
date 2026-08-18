@@ -34,6 +34,8 @@ class VoiceMessagePlayer extends StatelessWidget {
       return 6.0 + (random.nextDouble() * 20.0);
     });
 
+    final elapsedSec = isPlaying ? (progress * durationSeconds).toInt() : durationSeconds;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       constraints: const BoxConstraints(maxWidth: 260),
@@ -61,33 +63,37 @@ class VoiceMessagePlayer extends StatelessWidget {
               ),
               const SizedBox(width: 10),
 
-              // Audio Waveform
+              // Audio Waveform (Interactive tap)
               Expanded(
-                child: SizedBox(
-                  height: 32,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: List.generate(barHeights.length, (index) {
-                      final barProgress = index / barHeights.length;
-                      final isPlayed = isPlaying && barProgress <= progress;
+                child: GestureDetector(
+                  onTap: onPlayToggle,
+                  child: SizedBox(
+                    height: 32,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: List.generate(barHeights.length, (index) {
+                        final barProgress = (index + 1) / barHeights.length;
+                        final isPlayed = isPlaying && barProgress <= progress;
 
-                      Color barColor;
-                      if (isMe) {
-                        barColor = isPlayed ? Colors.white : Colors.white.withValues(alpha: 0.4);
-                      } else {
-                        barColor = isPlayed ? AppTheme.primary : AppTheme.primary.withValues(alpha: 0.25);
-                      }
+                        Color barColor;
+                        if (isMe) {
+                          barColor = isPlayed ? Colors.white : Colors.white.withValues(alpha: 0.35);
+                        } else {
+                          barColor = isPlayed ? AppTheme.primary : AppTheme.primary.withValues(alpha: 0.25);
+                        }
 
-                      return Container(
-                        width: 3,
-                        height: barHeights[index],
-                        decoration: BoxDecoration(
-                          color: barColor,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      );
-                    }),
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 100),
+                          width: 3.2,
+                          height: isPlayed ? barHeights[index] * 1.15 : barHeights[index],
+                          decoration: BoxDecoration(
+                            color: barColor,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        );
+                      }),
+                    ),
                   ),
                 ),
               ),
@@ -98,10 +104,10 @@ class VoiceMessagePlayer extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                DateFormatter.formatDuration(durationSeconds),
+                DateFormatter.formatDuration(elapsedSec),
                 style: TextStyle(
                   fontSize: 11,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                   color: secondaryColor,
                 ),
               ),

@@ -5,6 +5,7 @@ import '../constants/app_constants.dart';
 import '../../data/models/user_profile.dart';
 import '../../data/models/chat_message.dart';
 import '../../data/models/chat_conversation.dart';
+import '../../data/models/call_model.dart';
 
 class SupabaseService {
   static final SupabaseService instance = SupabaseService._internal();
@@ -662,5 +663,129 @@ class SupabaseService {
       debugPrint('Error fetching user conversations: $e');
       return [];
     }
+  }
+
+  // REALTIME CALLING METHODS
+  Future<CallModel?> createCall(CallModel call) async {
+    if (!isInitialized) return call;
+    try {
+      await _client!.from('calls').insert(call.toJson());
+
+      // Broadcast incoming call signal immediately for instant ringing
+      final channel = _client!.channel('public:calls:${call.receiverId}');
+      channel.sendBroadcastMessage(
+        event: 'incoming_call',
+        payload: call.toJson(),
+      );
+
+      return call;
+    } catch (e) {
+      debugPrint('Error creating call in Supabase: $e');
+      return call;
+    }
+  }
+
+  Future<void> updateCallStatus({
+    required String callId,
+    required CallStatus status,
+    DateTime? startedAt,
+    DateTime? endedAt,
+    int? duration,
+  }) async {
+    if (!isInitialized) return;
+    try {
+      final updateData = <String, dynamic>{
+        'status': status.name,
+      };
+      if (startedAt != null) updateData['started_at'] = startedAt.toIso8601String();
+      if (endedAt != null) updateData['ended_at'] = endedAt.toIso8601String();
+      if (duration != null) updateData['duration'] = duration;
+
+      await _client!.from('calls').update(updateData).eq('id', callId);
+
+      // Broadcast call state update
+      _client!.channel('public:calls:$callId').sendBroadcastMessage(
+        event: 'call_status_update',
+        payload: {'call_id': callId, ...updateData},
+      );
+    } catch (e) {
+      debugPrint('Error updating call status in Supabase: $e');
+    }
+  }
+
+  RealtimeChannel? subscribeToUserCalls(
+    String userId, {
+    required Function(CallModel call) onIncomingCall,
+    required Function(String callId, CallStatus status) onCallStatusChanged,
+  }) {
+    if (!isInitialized) return null;
+
+    final channel = _client!.channel(
+      'public:calls:$userId',
+      opts: const RealtimeChannelConfig(self: true),
+    );
+
+    // Listen for postgres changes on calls table
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.all,
+      schema: 'public',
+      table: 'calls',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'receiver_id',
+        value: userId,
+      ),
+      callback: (payload) {
+        final newRecord = payload.newRecord;
+        if (newRecord.isNotEmpty) {
+          try {
+            final call = CallModel.fromJson(newRecord);
+            if (call.status == CallStatus.ringing) {
+              onIncomingCall(call);
+            } else {
+              onCallStatusChanged(call.id, call.status);
+            }
+          } catch (e) {
+            debugPrint('Error parsing call postgres change: $e');
+          }
+        }
+      },
+    );
+
+    // Listen for zero-latency realtime broadcast incoming call
+    channel.onBroadcast(
+      event: 'incoming_call',
+      callback: (payload) {
+        try {
+          final call = CallModel.fromJson(payload);
+          onIncomingCall(call);
+        } catch (e) {
+          debugPrint('Error parsing incoming call broadcast: $e');
+        }
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'call_status_update',
+      callback: (payload) {
+        try {
+          final callId = payload['call_id'] as String;
+          final statusStr = payload['status'] as String;
+          final status = CallStatus.values.firstWhere(
+            (e) => e.name == statusStr,
+            orElse: () => CallStatus.ended,
+          );
+          onCallStatusChanged(callId, status);
+        } catch (e) {
+          debugPrint('Error parsing call status broadcast: $e');
+        }
+      },
+    );
+
+    channel.subscribe((status, [error]) {
+      debugPrint('Realtime calls channel [$userId] status: $status, error: $error');
+    });
+
+    return channel;
   }
 }
