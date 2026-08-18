@@ -45,30 +45,29 @@ class AuthProvider extends ChangeNotifier {
     final savedUsername = prefs.getString('local_username');
     final savedAbout = prefs.getString('local_about');
 
-    // Auto-seed default accounts into registered_users_db if missing
+    // Clean out any old mock template bot usernames from registered_users_db
     try {
       final dbJson = prefs.getString('registered_users_db') ?? '{}';
       final Map<String, dynamic> db = jsonDecode(dbJson);
-      bool dbUpdated = false;
-
-      for (final contact in MockData.contacts) {
-        final u = contact.username.toLowerCase();
-        if (!db.containsKey(u)) {
-          db[u] = '123456';
-          await prefs.setString('user_${u}_full_name', contact.fullName);
-          await prefs.setString('user_${u}_about', contact.about);
-          if (contact.avatarUrl != null) {
-            await prefs.setString('user_${u}_avatar_url', contact.avatarUrl!);
-          }
-          dbUpdated = true;
+      const mockBots = [
+        'lola_k', 'abbos_sh', 'aziz_dev', 'dilnoza_ui', 'sardor_pm',
+        'elena_r', 'david_c', 'anna_s', 'sarah_m', 'michael_b'
+      ];
+      bool cleaned = false;
+      for (final bot in mockBots) {
+        if (db.containsKey(bot)) {
+          db.remove(bot);
+          cleaned = true;
+          prefs.remove('user_${bot}_full_name');
+          prefs.remove('user_${bot}_about');
+          prefs.remove('user_${bot}_avatar_url');
         }
       }
-
-      if (dbUpdated) {
+      if (cleaned) {
         await prefs.setString('registered_users_db', jsonEncode(db));
       }
     } catch (e) {
-      debugPrint('Error auto-seeding users db: $e');
+      debugPrint('Error cleaning mock bots: $e');
     }
 
     if (savedUsername != null) {

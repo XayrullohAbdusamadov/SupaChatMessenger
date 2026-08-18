@@ -6,7 +6,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../core/services/sound_service.dart';
 import '../core/services/supabase_service.dart';
-import '../core/utils/mock_data.dart';
 import '../data/models/chat_conversation.dart';
 import '../data/models/chat_message.dart';
 import '../data/models/user_profile.dart';
@@ -247,20 +246,7 @@ class ChatProvider extends ChangeNotifier {
       debugPrint('Error searching local users database: $e');
     }
 
-    // 4. Search all built-in seed users from MockData.contacts
-    for (final contact in MockData.contacts) {
-      final uLower = contact.username.toLowerCase();
-      if (uLower.contains(cleanQuery) ||
-          contact.fullName.toLowerCase().contains(cleanQuery) ||
-          contact.about.toLowerCase().contains(cleanQuery) ||
-          (contact.role != null && contact.role!.toLowerCase().contains(cleanQuery))) {
-        if (!matchedMap.containsKey(uLower)) {
-          matchedMap[uLower] = contact;
-        }
-      }
-    }
-
-    // 5. Search existing conversation participants
+    // 4. Search existing conversation participants
     for (final conv in _conversations) {
       for (final p in conv.participants) {
         final uLower = p.username.toLowerCase();
@@ -272,7 +258,7 @@ class ChatProvider extends ChangeNotifier {
       }
     }
 
-    // 6. Search recent searches history
+    // 5. Search recent searches history
     for (final r in _recentSearches) {
       final uLower = r.username.toLowerCase();
       if (uLower.contains(cleanQuery) || r.fullName.toLowerCase().contains(cleanQuery)) {
