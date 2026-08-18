@@ -37,7 +37,7 @@ class SupabaseService {
     return false;
   }
 
-  // Connect to custom Supabase instance
+  // Connect to Supabase instance
   Future<bool> connect(String url, String anonKey) async {
     try {
       if (url.isEmpty || anonKey.isEmpty || !url.startsWith('http')) {
@@ -104,7 +104,7 @@ class SupabaseService {
         email: email.trim(),
         password: password,
         data: {
-          'username': username.trim(),
+          'username': username.trim().toLowerCase(),
           'full_name': fullName.trim(),
         },
       );
@@ -144,11 +144,12 @@ class SupabaseService {
 
   Future<UserProfile?> fetchProfileByUsername(String username) async {
     if (!isInitialized) return null;
+    final clean = username.trim().toLowerCase();
     try {
       final response = await _client!
           .from('profiles')
           .select()
-          .eq('username', username.trim().toLowerCase())
+          .eq('username', clean)
           .maybeSingle();
 
       if (response != null) {
@@ -166,10 +167,11 @@ class SupabaseService {
       await _client!.from('profiles').upsert({
         'id': profile.id,
         'username': profile.username.trim().toLowerCase(),
-        'full_name': profile.fullName.trim(),
+        'full_name': profile.fullName.trim().isNotEmpty ? profile.fullName.trim() : profile.username.trim(),
         'avatar_url': profile.avatarUrl,
-        'about': profile.about,
+        'about': profile.about.isNotEmpty ? profile.about : 'Hey there! I am using SupaChat.',
         'is_online': profile.isOnline,
+        'last_seen': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       });
       return true;
@@ -184,6 +186,25 @@ class SupabaseService {
     final clean = query.trim().replaceAll('@', '').toLowerCase();
     if (clean.isEmpty) return [];
 
+    final Map<String, UserProfile> userMap = {};
+
+    // 1. Direct equality on username
+    try {
+      final exactRes = await _client!
+          .from('profiles')
+          .select()
+          .eq('username', clean)
+          .limit(5);
+
+      for (final row in exactRes as List) {
+        final u = UserProfile.fromJson(row);
+        userMap[u.username.toLowerCase()] = u;
+      }
+    } catch (e) {
+      debugPrint('Error searching exact username in Supabase: $e');
+    }
+
+    // 2. ILIKE query on username or full_name
     try {
       final response = await _client!
           .from('profiles')
@@ -191,7 +212,10 @@ class SupabaseService {
           .or('username.ilike.%$clean%,full_name.ilike.%$clean%')
           .limit(25);
 
-      return (response as List).map((json) => UserProfile.fromJson(json)).toList();
+      for (final row in response as List) {
+        final u = UserProfile.fromJson(row);
+        userMap[u.username.toLowerCase()] = u;
+      }
     } catch (e) {
       debugPrint('Error searching users in Supabase: $e');
       try {
@@ -201,12 +225,16 @@ class SupabaseService {
             .ilike('username', '%$clean%')
             .limit(25);
 
-        return (response as List).map((json) => UserProfile.fromJson(json)).toList();
+        for (final row in response as List) {
+          final u = UserProfile.fromJson(row);
+          userMap[u.username.toLowerCase()] = u;
+        }
       } catch (err) {
         debugPrint('Fallback username search error: $err');
-        return [];
       }
     }
+
+    return userMap.values.toList();
   }
 
   // CHATS
@@ -308,7 +336,7 @@ class SupabaseService {
     }
   }
 
-  // REALTIME SUBSCRIPTION
+  // REALTIME SUBSCRIPTIONS
   RealtimeChannel? subscribeToChatMessages(
     String chatId, {
     required Function(ChatMessage message) onMessageReceived,
@@ -330,6 +358,33 @@ class SupabaseService {
         if (newRecord.isNotEmpty) {
           final message = ChatMessage.fromJson(newRecord);
           onMessageReceived(message);
+        }
+      },
+    ).subscribe();
+
+    return channel;
+  }
+
+  // GLOBAL REALTIME MESSAGE LISTENER FOR INCOMING NOTIFICATIONS
+  RealtimeChannel? subscribeToAllMessages({
+    required Function(ChatMessage message) onMessageReceived,
+  }) {
+    if (!isInitialized) return null;
+
+    final channel = _client!.channel('public:messages:all');
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'messages',
+      callback: (payload) {
+        final newRecord = payload.newRecord;
+        if (newRecord.isNotEmpty) {
+          try {
+            final message = ChatMessage.fromJson(newRecord);
+            onMessageReceived(message);
+          } catch (e) {
+            debugPrint('Error decoding realtime message: $e');
+          }
         }
       },
     ).subscribe();

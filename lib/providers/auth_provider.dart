@@ -113,40 +113,62 @@ class AuthProvider extends ChangeNotifier {
     final cleanUsername = username.trim().toLowerCase();
 
     try {
-      if (_isSupabaseConnected) {
-        // Query Supabase profiles table for existing user
-        final profile = await _supabaseService.fetchProfileByUsername(cleanUsername);
-        if (profile == null) {
-          _errorMessage = "Ushbu username ('$cleanUsername') bazada topilmadi! Avval Ro'yxatdan o'tish bo'limidan yangi hisob yarating.";
-          _isLoading = false;
-          notifyListeners();
-          return false;
-        }
+      final prefs = await SharedPreferences.getInstance();
+      final dbJson = prefs.getString('registered_users_db') ?? '{}';
+      final Map<String, dynamic> db = jsonDecode(dbJson);
 
-        final email = '$cleanUsername@supachat.local';
-        final response = await _supabaseService.signInWithEmail(email, password);
-        if (response?.user != null) {
-          _currentUser = profile;
-        } else {
-          // If auth signin fails, load profile directly if password matched in local credentials
-          final prefs = await SharedPreferences.getInstance();
-          final dbJson = prefs.getString('registered_users_db') ?? '{}';
-          final Map<String, dynamic> db = jsonDecode(dbJson);
+      if (_isSupabaseConnected || _supabaseService.isInitialized) {
+        final profile = await _supabaseService.fetchProfileByUsername(cleanUsername);
+        if (profile != null) {
+          final email = '$cleanUsername@supachat.local';
+          await _supabaseService.signInWithEmail(email, password);
+
+          // Check local password if stored
           if (db.containsKey(cleanUsername) && db[cleanUsername] != password) {
             _errorMessage = "Parol noto'g'ri kiritildi! Qayta urinib ko'ring.";
             _isLoading = false;
             notifyListeners();
             return false;
           }
-          _currentUser = profile;
+
+          _currentUser = profile.copyWith(isOnline: true);
+          await _supabaseService.updateProfile(_currentUser);
+        } else {
+          // Check local database if not found in Supabase
+          if (!db.containsKey(cleanUsername)) {
+            _errorMessage = "Ushbu username ('$cleanUsername') bazada topilmadi! Avval Ro'yxatdan o'tish bo'limidan yangi hisob yarating.";
+            _isLoading = false;
+            notifyListeners();
+            return false;
+          }
+
+          if (db[cleanUsername] != password) {
+            _errorMessage = "Parol noto'g'ri kiritildi! Qayta urinib ko'ring.";
+            _isLoading = false;
+            notifyListeners();
+            return false;
+          }
+
+          final userId = const Uuid().v5(Namespace.url.value, 'supachat:user:$cleanUsername');
+          final savedName = prefs.getString('user_${cleanUsername}_full_name');
+          final savedAbout = prefs.getString('user_${cleanUsername}_about');
+          final savedAvatar = prefs.getString('user_${cleanUsername}_avatar_url');
+
+          _currentUser = UserProfile(
+            id: userId,
+            username: cleanUsername,
+            fullName: savedName ?? username.trim(),
+            about: savedAbout ?? 'Hey there! I am using SupaChat.',
+            avatarUrl: savedAvatar,
+            isOnline: true,
+          );
+
+          // Sync into Supabase profiles
+          await _supabaseService.updateProfile(_currentUser);
         }
       } else {
         // Strict Local Database credentials check
-        await Future.delayed(const Duration(milliseconds: 400));
-        final prefs = await SharedPreferences.getInstance();
-        final dbJson = prefs.getString('registered_users_db') ?? '{}';
-        final Map<String, dynamic> db = jsonDecode(dbJson);
-
+        await Future.delayed(const Duration(milliseconds: 300));
         if (!db.containsKey(cleanUsername)) {
           _errorMessage = "Ushbu username ('$cleanUsername') bazada topilmadi! Avval Ro'yxatdan o'tish bo'limida yangi hisob yarating.";
           _isLoading = false;
@@ -161,21 +183,22 @@ class AuthProvider extends ChangeNotifier {
           return false;
         }
 
+        final userId = const Uuid().v5(Namespace.url.value, 'supachat:user:$cleanUsername');
         final savedName = prefs.getString('user_${cleanUsername}_full_name');
         final savedAbout = prefs.getString('user_${cleanUsername}_about');
         final savedAvatar = prefs.getString('user_${cleanUsername}_avatar_url');
 
         _currentUser = UserProfile(
-          id: 'user-$cleanUsername',
+          id: userId,
           username: cleanUsername,
           fullName: savedName ?? username.trim(),
           about: savedAbout ?? 'Hey there! I am using SupaChat.',
           avatarUrl: savedAvatar,
+          isOnline: true,
         );
       }
 
       _isLoggedIn = true;
-      final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('is_logged_in', true);
       await prefs.setString('local_username', cleanUsername);
       await prefs.setString('local_full_name', _currentUser.fullName);
@@ -380,7 +403,7 @@ class AuthProvider extends ChangeNotifier {
     String? finalAvatar = deleteExistingAvatar ? null : (avatarUrl ?? _currentUser.avatarUrl);
 
     if (newAvatarBytes != null && !deleteExistingAvatar) {
-      if (_isSupabaseConnected) {
+      if (_isSupabaseConnected || _supabaseService.isInitialized) {
         final fileName = 'avatar_${_currentUser.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
         final uploadedUrl = await _supabaseService.uploadFile(
           bucketName: 'avatars',
@@ -394,7 +417,7 @@ class AuthProvider extends ChangeNotifier {
           finalAvatar = 'data:image/jpeg;base64,${base64Encode(newAvatarBytes)}';
         }
       } else {
-        // Local base64 data URI for demo / offline mode
+        // Local base64 data URI for offline mode
         finalAvatar = 'data:image/jpeg;base64,${base64Encode(newAvatarBytes)}';
       }
     }
@@ -426,7 +449,7 @@ class AuthProvider extends ChangeNotifier {
       await prefs.remove('user_${cleanUser}_avatar_url');
     }
 
-    if (_isSupabaseConnected) {
+    if (_isSupabaseConnected || _supabaseService.isInitialized) {
       await _supabaseService.updateProfile(_currentUser);
     }
 

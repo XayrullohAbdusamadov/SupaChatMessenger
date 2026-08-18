@@ -503,6 +503,99 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  RealtimeChannel? _globalRealtimeSubscription;
+  String? _currentListeningUserId;
+
+  void initGlobalRealtime(String currentUserId) {
+    if (_currentListeningUserId == currentUserId && _globalRealtimeSubscription != null) {
+      return;
+    }
+    _currentListeningUserId = currentUserId;
+    _globalRealtimeSubscription?.unsubscribe();
+    _globalRealtimeSubscription = _supabaseService.subscribeToAllMessages(
+      onMessageReceived: (newMsg) async {
+        // If message was sent by ourselves, ignore
+        if (newMsg.senderId == currentUserId) return;
+
+        // If this chat is currently open and active
+        if (_activeChat != null && _activeChat!.id == newMsg.chatId) {
+          if (!_currentMessages.any((m) => m.id == newMsg.id)) {
+            _currentMessages.add(newMsg);
+            _updateLastMessage(newMsg);
+            _saveMessagesToLocalCache(newMsg.chatId);
+            SoundService.instance.playTiqSound();
+            notifyListeners();
+          }
+          return;
+        }
+
+        // If chat is NOT currently open: update conversation list and show floating notification banner
+        ChatConversation? conv;
+        final convIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
+
+        if (convIdx != -1) {
+          final existing = _conversations[convIdx];
+          final updated = existing.copyWith(
+            lastMessageText: newMsg.content.isNotEmpty ? newMsg.content : 'Media xabar',
+            lastMessageType: newMsg.messageType,
+            lastMessageAt: newMsg.createdAt,
+            unreadCount: existing.unreadCount + 1,
+          );
+          _conversations.removeAt(convIdx);
+          _conversations.insert(0, updated);
+          conv = updated;
+        } else {
+          // New conversation from sender
+          UserProfile? senderProfile;
+          if (_supabaseService.isInitialized) {
+            senderProfile = await _supabaseService.fetchProfile(newMsg.senderId);
+          }
+
+          final newConv = ChatConversation(
+            id: newMsg.chatId,
+            isGroup: false,
+            name: senderProfile?.fullName ?? 'Foydalanuvchi',
+            avatarUrl: senderProfile?.avatarUrl,
+            participants: senderProfile != null ? [senderProfile] : [],
+            lastMessageText: newMsg.content.isNotEmpty ? newMsg.content : 'Media xabar',
+            lastMessageType: newMsg.messageType,
+            lastMessageAt: newMsg.createdAt,
+            unreadCount: 1,
+          );
+          _conversations.insert(0, newConv);
+          conv = newConv;
+        }
+
+        // Save updated messages and conversation list to cache
+        await _saveConversations();
+        await _appendMessageToLocalCache(newMsg.chatId, newMsg);
+        notifyListeners();
+
+        // Trigger in-app notification banner and sound
+        triggerNotification(newMsg, conv);
+      },
+    );
+  }
+
+  Future<void> _appendMessageToLocalCache(String chatId, ChatMessage message) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString('chat_messages_$chatId');
+      List<ChatMessage> list = [];
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List decoded = jsonDecode(jsonStr);
+        list = decoded.map((j) => ChatMessage.fromJson(j)).toList();
+      }
+      if (!list.any((m) => m.id == message.id)) {
+        list.add(message);
+        final encoded = jsonEncode(list.map((m) => m.toJson()).toList());
+        await prefs.setString('chat_messages_$chatId', encoded);
+      }
+    } catch (e) {
+      debugPrint('Error appending message to local cache: $e');
+    }
+  }
+
   void _subscribeToRealtime(String chatId) {
     _realtimeSubscription?.unsubscribe();
     _realtimeSubscription = _supabaseService.subscribeToChatMessages(

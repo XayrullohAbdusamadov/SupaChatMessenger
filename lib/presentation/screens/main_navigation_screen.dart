@@ -31,8 +31,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = context.read<AuthProvider>();
       final chatProvider = context.read<ChatProvider>();
       chatProvider.onIncomingNotification = _showTopNotificationBanner;
+      if (authProvider.currentUser.id.isNotEmpty) {
+        chatProvider.initGlobalRealtime(authProvider.currentUser.id);
+      }
     });
   }
 
