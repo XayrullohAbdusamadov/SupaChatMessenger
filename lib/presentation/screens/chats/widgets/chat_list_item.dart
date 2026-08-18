@@ -30,46 +30,49 @@ class ChatListItem extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
-            // AVATAR
-            Stack(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: conversation.isGroup
-                        ? AppTheme.secondary.withValues(alpha: 0.15)
-                        : AppTheme.primary.withValues(alpha: 0.1),
-                  ),
-                  child: ClipOval(
-                    child: AvatarHelper.buildAvatarWidget(
-                      avatarUrl: displayAvatar,
-                      name: displayName,
-                      radius: 26,
+            // AVATAR (Tappable to enlarge profile photo)
+            GestureDetector(
+              onTap: () => _showEnlargedAvatarDialog(context, displayName, displayAvatar),
+              child: Stack(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: conversation.isGroup
+                          ? AppTheme.secondary.withValues(alpha: 0.15)
+                          : AppTheme.primary.withValues(alpha: 0.1),
                     ),
-                  ),
-                ),
-                if (!conversation.isGroup &&
-                    conversation.participants.isNotEmpty &&
-                    conversation.participants.any((p) => p.isOnline && p.id != currentUserId))
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      width: 13,
-                      height: 13,
-                      decoration: BoxDecoration(
-                        color: AppTheme.tertiary,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-                          width: 2,
-                        ),
+                    child: ClipOval(
+                      child: AvatarHelper.buildAvatarWidget(
+                        avatarUrl: displayAvatar,
+                        name: displayName,
+                        radius: 26,
                       ),
                     ),
                   ),
-              ],
+                  if (!conversation.isGroup &&
+                      conversation.participants.isNotEmpty &&
+                      conversation.participants.any((p) => p.isOnline && p.id != currentUserId))
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 13,
+                        height: 13,
+                        decoration: BoxDecoration(
+                          color: AppTheme.tertiary,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(width: 14),
 
@@ -205,6 +208,61 @@ class ChatListItem extends StatelessWidget {
       style: TextStyle(
         fontSize: 13,
         color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+      ),
+    );
+  }
+
+  void _showEnlargedAvatarDialog(BuildContext context, String name, String? avatarUrl) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 30,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: SizedBox(
+                  width: 280,
+                  height: 280,
+                  child: AvatarHelper.buildAvatarWidget(
+                    avatarUrl: avatarUrl,
+                    name: name,
+                    radius: 140,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.75),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
