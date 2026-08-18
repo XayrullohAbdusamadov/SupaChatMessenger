@@ -171,10 +171,7 @@ class ChatProvider extends ChangeNotifier {
   Future<void> _loadSavedConversations(String userId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      String? jsonStr = prefs.getString('saved_user_conversations_$userId');
-      if (jsonStr == null || jsonStr.isEmpty) {
-        jsonStr = prefs.getString('saved_user_conversations');
-      }
+      final String? jsonStr = prefs.getString('saved_user_conversations_$userId');
       if (jsonStr != null && jsonStr.isNotEmpty) {
         final List decoded = jsonDecode(jsonStr);
         _conversations = decoded.map((j) => ChatConversation.fromJson(j)).toList();
@@ -614,24 +611,34 @@ class ChatProvider extends ChangeNotifier {
 
     // Strictly verify that this message is meant for currentUserId
     bool isMyChat = false;
-    final convIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
-    if (convIdx != -1) {
-      isMyChat = true;
-    } else if (_currentActiveUsername != null) {
+
+    if (_currentActiveUsername != null && _currentActiveUsername!.isNotEmpty) {
       final myUser = _currentActiveUsername!.trim().toLowerCase();
-      final otherUser = senderUsername.trim().toLowerCase();
-      final sorted = [myUser, otherUser]..sort();
-      final expectedChatId = _uuid.v5(Namespace.url.value, 'supachat:direct:${sorted.join(':')}');
-      if (newMsg.chatId == expectedChatId) {
+      final senderUser = senderUsername.trim().toLowerCase();
+      final sorted = [myUser, senderUser]..sort();
+      final expectedDirectChatId = _uuid.v5(Namespace.url.value, 'supachat:direct:${sorted.join(':')}');
+      if (newMsg.chatId == expectedDirectChatId) {
         isMyChat = true;
       }
     }
-    if (!isMyChat && _supabaseService.isInitialized) {
-      isMyChat = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId);
+
+    // Check if it's an existing group conversation or registered group participant
+    if (!isMyChat) {
+      final existingGroupIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId && c.isGroup);
+      if (existingGroupIdx != -1) {
+        isMyChat = true;
+      } else if (_supabaseService.isInitialized) {
+        final isParticipant = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId);
+        if (isParticipant) {
+          isMyChat = true;
+        }
+      }
     }
 
     // If this message does not belong to the current user, ignore completely!
     if (!isMyChat) return;
+
+    final convIdx = _conversations.indexWhere((c) => c.id == newMsg.chatId);
 
     // Check if we already have this message cached
     final cached = await _loadCachedMessagesForChat(newMsg.chatId);

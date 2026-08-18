@@ -233,24 +233,25 @@ class _ContactsScreenState extends State<ContactsScreen> {
             const SizedBox(height: 8),
             ...chatProvider.recentSearches.map((user) => Container(
                   margin: const EdgeInsets.only(bottom: 6),
-                  decoration: BoxDecoration(
+                  child: Material(
                     color: isDark ? AppTheme.cardDark : AppTheme.surfaceLight,
                     borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: ListTile(
-                    dense: true,
-                    leading: AvatarHelper.buildAvatarWidget(
-                      avatarUrl: user.avatarUrl,
-                      name: user.fullName,
-                      radius: 18,
+                    clipBehavior: Clip.antiAlias,
+                    child: ListTile(
+                      dense: true,
+                      leading: AvatarHelper.buildAvatarWidget(
+                        avatarUrl: user.avatarUrl,
+                        name: user.fullName,
+                        radius: 18,
+                      ),
+                      title: Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('@${user.username}'),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                        onPressed: () => chatProvider.deleteRecentSearch(user.id),
+                      ),
+                      onTap: () => _openChat(context, user, currentUser.id),
                     ),
-                    title: Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('@${user.username}'),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
-                      onPressed: () => chatProvider.deleteRecentSearch(user.id),
-                    ),
-                    onTap: () => _openChat(context, user, currentUser.id),
                   ),
                 )),
             const SizedBox(height: 20),

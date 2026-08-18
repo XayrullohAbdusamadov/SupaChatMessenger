@@ -45,7 +45,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     final authProvider = context.read<AuthProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final displayName = conversation.getDisplayName(authProvider.currentUser.id, currentUsername: authProvider.currentUser.username);
+    final displayAvatar = conversation.getDisplayAvatar(authProvider.currentUser.id, currentUsername: authProvider.currentUser.username);
 
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         duration: const Duration(seconds: 4),
@@ -74,8 +77,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           child: Row(
             children: [
               AvatarHelper.buildAvatarWidget(
-                avatarUrl: conversation.avatarUrl,
-                name: conversation.name,
+                avatarUrl: displayAvatar,
+                name: displayName,
                 radius: 20,
               ),
               const SizedBox(width: 12),
@@ -88,7 +91,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       children: [
                         Expanded(
                           child: Text(
-                            conversation.name,
+                            displayName,
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
