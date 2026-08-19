@@ -431,14 +431,28 @@ class SupabaseService {
     }
   }
 
-  Future<bool> isUserParticipant(String chatId, String userId) async {
+  Future<bool> isUserParticipant(String chatId, String userId, {String? username}) async {
     if (!isInitialized) return false;
     try {
+      final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+      final validUids = <String>{};
+      if (uuidRegex.hasMatch(userId.trim())) {
+        validUids.add(userId.trim());
+      }
+      if (username != null && username.isNotEmpty) {
+        final cleanU = username.trim().toLowerCase().replaceAll('@', '').replaceAll('user-', '');
+        final p = await fetchProfileByUsername(cleanU);
+        if (p != null && uuidRegex.hasMatch(p.id)) {
+          validUids.add(p.id);
+        }
+      }
+      if (validUids.isEmpty) return false;
+
       final res = await _client!
           .from('chat_participants')
           .select('chat_id')
           .eq('chat_id', chatId)
-          .eq('user_id', userId)
+          .inFilter('user_id', validUids.toList())
           .maybeSingle();
 
       return res != null;
@@ -541,6 +555,24 @@ class SupabaseService {
 
       final msgPayload = message.toSupabaseJson();
       msgPayload['sender_id'] = validSenderId;
+
+      // Ensure receiver_id is a valid UUID if provided
+      if (msgPayload.containsKey('receiver_id') && msgPayload['receiver_id'] != null) {
+        final recId = msgPayload['receiver_id'].toString().trim();
+        if (recId.isNotEmpty) {
+          if (!uuidRegex.hasMatch(recId)) {
+            final cleanRec = recId.replaceAll('user-', '').trim().toLowerCase().replaceAll('@', '');
+            final pRec = await fetchProfileByUsername(cleanRec);
+            if (pRec != null && uuidRegex.hasMatch(pRec.id)) {
+              msgPayload['receiver_id'] = pRec.id;
+            } else {
+              msgPayload.remove('receiver_id');
+            }
+          }
+        } else {
+          msgPayload.remove('receiver_id');
+        }
+      }
 
       final inserted = await _client!
           .from('messages')
@@ -761,12 +793,21 @@ class SupabaseService {
   Future<List<ChatConversation>> fetchUserConversations(String userId, {String? username}) async {
     if (!isInitialized) return [];
     try {
-      final queryIds = <String>{userId};
-      if (username != null && username.isNotEmpty) {
-        final cleanU = username.trim().toLowerCase().replaceAll('@', '');
-        queryIds.add(cleanU);
-        queryIds.add('user-$cleanU');
+      final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+      final queryIds = <String>{};
+
+      if (uuidRegex.hasMatch(userId.trim())) {
+        queryIds.add(userId.trim());
       }
+      if (username != null && username.isNotEmpty) {
+        final cleanU = username.trim().toLowerCase().replaceAll('@', '').replaceAll('user-', '');
+        final profile = await fetchProfileByUsername(cleanU);
+        if (profile != null && uuidRegex.hasMatch(profile.id)) {
+          queryIds.add(profile.id);
+        }
+      }
+
+      if (queryIds.isEmpty) return [];
 
       // 1. Get all chat IDs where this user is a participant
       final participantRows = await _client!
@@ -805,7 +846,6 @@ class SupabaseService {
       }
 
       // 4. Batch fetch all profiles for all participants not yet in cache
-      final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
       final missingIds = allParticipantUserIds
           .where((id) => !_profileCache.containsKey(id) && !_profileCache.containsKey(id.toLowerCase()))
           .toList();

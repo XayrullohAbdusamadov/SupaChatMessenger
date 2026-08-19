@@ -876,12 +876,29 @@ class ChatProvider extends ChangeNotifier {
         ? ChatConversation.computeDirectChatId(myUsername, senderUsername)
         : null;
 
-    bool isForMe = (expectedDirectId != null && newMsg.chatId == expectedDirectId) ||
-        _conversations.any((c) => c.id == newMsg.chatId);
+    bool isForMe = false;
 
-    // Fallback: ask Supabase server if current user is actually a participant
+    // 1. Direct match on expected direct chat ID
+    if (expectedDirectId != null && newMsg.chatId == expectedDirectId) {
+      isForMe = true;
+    }
+
+    // 2. Direct match on receiverId
+    if (!isForMe && newMsg.receiverId != null && newMsg.receiverId!.isNotEmpty) {
+      final rec = newMsg.receiverId!;
+      if (rec == currentUserId || (myUsername.isNotEmpty && (rec == myUsername || rec.replaceAll('user-', '') == myUsername))) {
+        isForMe = true;
+      }
+    }
+
+    // 3. Match against existing local conversations
+    if (!isForMe && _conversations.any((c) => c.id == newMsg.chatId)) {
+      isForMe = true;
+    }
+
+    // 4. Server participant check fallback
     if (!isForMe && _supabaseService.isInitialized) {
-      isForMe = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId);
+      isForMe = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId, username: myUsername);
       if (isForMe) {
         debugPrint('[ChatProvider] isForMe resolved via server participant check for chat: ${newMsg.chatId}');
       }
@@ -978,12 +995,21 @@ class ChatProvider extends ChangeNotifier {
       _conversations.removeAt(convIdx);
       _conversations.insert(0, conv);
     } else {
+      final myProfile = UserProfile(
+        id: currentUserId,
+        username: myUsername,
+        fullName: _currentActiveUsername ?? myUsername,
+      );
+      final participantList = [senderProfile];
+      if (myUsername.isNotEmpty) {
+        participantList.add(myProfile);
+      }
       conv = ChatConversation(
         id: targetChatId,
         isGroup: false,
         name: senderProfile.fullName.isNotEmpty ? senderProfile.fullName : senderProfile.username,
         avatarUrl: senderProfile.avatarUrl,
-        participants: [senderProfile],
+        participants: participantList,
         lastMessageText: preview,
         lastMessageType: newMsg.messageType,
         lastMessageSenderId: newMsg.senderId,
