@@ -1,100 +1,104 @@
 -- ==============================================================================
--- PART 1: SUPACHAT MESSENGER - FAKE / BOT / SPAM ACCOUNTS CLEANUP SCRIPT
+-- SUPACHAT MESSENGER - FAKE / BOT / SPAM ACCOUNTS CLEANUP SCRIPT
 -- ==============================================================================
--- INSTRUCTIONS:
--- 1. Run STEP 1 first (Dry-Run / Preview) to inspect matching fake accounts.
--- 2. Once verified, run STEP 2 in Supabase SQL Editor to safely delete them.
+-- Ushbu skript Supabase SQL Editorida xatoliksiz ishlashi uchun to'liq optimallashgan.
+-- Barcha o'chirish amallari bog'liqliklar (Foreign Keys / Cascades) bo'yicha ketma-ket bajariladi.
 -- ==============================================================================
 
 -- ------------------------------------------------------------------------------
--- STEP 1: DRY-RUN PREVIEW (Review accounts before deleting)
+-- 1. TOZALASH FUNKSIYASI (Stored Procedure)
 -- ------------------------------------------------------------------------------
-SELECT 
-    p.id,
-    p.username,
-    p.full_name,
-    p.avatar_url,
-    p.created_at,
-    (SELECT COUNT(*) FROM public.messages m WHERE m.sender_id::text = p.id::text) AS messages_sent,
-    CASE 
-        WHEN p.username IN ('supachat_bot', 'admin_dev') THEN 'Tizim bot/demo akkaunti'
-        WHEN p.id::text IN ('00000000-0000-4000-a000-000000000001', '00000000-0000-4000-a000-000000000002') THEN 'Tizim demo UUID'
-        WHEN p.username LIKE 'test_%' OR p.username LIKE 'bot_%' OR p.username LIKE 'user_%' THEN 'Shubhali username pattern'
-        WHEN (p.full_name IS NULL OR p.full_name = '') AND p.avatar_url IS NULL THEN 'To''ldirilmagan profil'
-        ELSE 'Boshqa'
-    END AS aniqlash_sababi
-FROM public.profiles p
-WHERE p.username IN ('supachat_bot', 'admin_dev')
-   OR p.id::text IN ('00000000-0000-4000-a000-000000000001', '00000000-0000-4000-a000-000000000002')
-   OR p.username LIKE 'test_%'
-   OR p.username LIKE 'bot_%'
-ORDER BY p.created_at DESC;
-
-
--- ------------------------------------------------------------------------------
--- STEP 2: SAFE TRANSACTIONAL DELETION (CASCADE CLEANUP)
--- ------------------------------------------------------------------------------
-BEGIN;
-
--- 1. Vaqtinchalik o'chirilishi kerak bo'lgan akkauntlar ID jadvali
-CREATE TEMP TABLE temp_fake_user_ids AS
-SELECT id::text AS id_str FROM public.profiles
-WHERE username IN ('supachat_bot', 'admin_dev')
-   OR id::text IN ('00000000-0000-4000-a000-000000000001', '00000000-0000-4000-a000-000000000002')
-   OR username LIKE 'test_%'
-   OR username LIKE 'bot_%';
-
--- 2. Bot/Fake akkauntlarga tegishli qo'ng'iroqlarni tozalash (agar calls jadvali mavjud bo'lsa)
-DO $$
+CREATE OR REPLACE FUNCTION public.cleanup_fake_accounts()
+RETURNS JSONB AS $$
+DECLARE
+    v_fake_ids TEXT[];
+    v_deleted_messages INT := 0;
+    v_deleted_participants INT := 0;
+    v_deleted_chats INT := 0;
+    v_deleted_profiles INT := 0;
 BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'calls' AND table_schema = 'public') THEN
-        DELETE FROM public.calls 
-        WHERE caller_id::text IN (SELECT id_str FROM temp_fake_user_ids)
-           OR receiver_id::text IN (SELECT id_str FROM temp_fake_user_ids);
+    -- 1. Fake / Demo / Bot akkauntlar ID larini massivga yig'ib olish
+    SELECT ARRAY_AGG(id::text) INTO v_fake_ids
+    FROM public.profiles
+    WHERE username IN ('supachat_bot', 'admin_dev')
+       OR id::text IN ('00000000-0000-4000-a000-000000000001', '00000000-0000-4000-a000-000000000002')
+       OR username LIKE 'test_%'
+       OR username LIKE 'bot_%';
+
+    IF v_fake_ids IS NULL OR ARRAY_LENGTH(v_fake_ids, 1) = 0 THEN
+        RETURN jsonb_build_object(
+            'status', 'success',
+            'message', 'O''chiriladigan fake akkauntlar topilmadi.'
+        );
     END IF;
-END $$;
 
--- 3. Bot/Fake akkauntlar yuborgan yoki qabul qilgan xabarlarni tozalash
-DELETE FROM public.messages 
-WHERE sender_id::text IN (SELECT id_str FROM temp_fake_user_ids)
-   OR chat_id::text = '00000000-0000-4000-a000-000000000010';
+    -- 2. Qo'ng'iroqlarni tozalash (agar calls jadvali mavjud bo'lsa)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'calls') THEN
+        DELETE FROM public.calls 
+        WHERE caller_id::text = ANY(v_fake_ids)
+           OR receiver_id::text = ANY(v_fake_ids);
+    END IF;
 
--- 4. Demo umumiy chat va bot ishtirokchilarini tozalash
-DELETE FROM public.chat_participants 
-WHERE user_id::text IN (SELECT id_str FROM temp_fake_user_ids)
-   OR chat_id::text = '00000000-0000-4000-a000-000000000010';
+    -- 3. Xabarlarni tozalash
+    WITH del_msgs AS (
+        DELETE FROM public.messages 
+        WHERE sender_id::text = ANY(v_fake_ids)
+           OR chat_id::text = '00000000-0000-4000-a000-000000000010'
+        RETURNING id
+    )
+    SELECT COUNT(*) INTO v_deleted_messages FROM del_msgs;
 
-DELETE FROM public.chats 
-WHERE id::text = '00000000-0000-4000-a000-000000000010'
-   OR created_by::text IN (SELECT id_str FROM temp_fake_user_ids);
+    -- 4. Chat ishtirokchilarini tozalash
+    WITH del_parts AS (
+        DELETE FROM public.chat_participants 
+        WHERE user_id::text = ANY(v_fake_ids)
+           OR chat_id::text = '00000000-0000-4000-a000-000000000010'
+        RETURNING chat_id
+    )
+    SELECT COUNT(*) INTO v_deleted_participants FROM del_parts;
 
--- 5. Qurilma tokenlari va statuslarini tozalash
-DELETE FROM public.user_devices 
-WHERE user_id::text IN (SELECT id_str FROM temp_fake_user_ids);
+    -- 5. Chatlarni tozalash
+    WITH del_chats AS (
+        DELETE FROM public.chats 
+        WHERE id::text = '00000000-0000-4000-a000-000000000010'
+           OR created_by::text = ANY(v_fake_ids)
+        RETURNING id
+    )
+    SELECT COUNT(*) INTO v_deleted_chats FROM del_chats;
 
--- 6. Bot/Fake profillarni o'chirish
-DELETE FROM public.profiles 
-WHERE id::text IN (SELECT id_str FROM temp_fake_user_ids);
+    -- 6. Qurilma tokenlarini tozalash
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_devices') THEN
+        DELETE FROM public.user_devices 
+        WHERE user_id::text = ANY(v_fake_ids);
+    END IF;
 
--- 7. auth.users dan ham tegishli UUID larni tozalash (agar auth jadvallarida mavjud bo'lsa)
-DELETE FROM auth.users 
-WHERE id::text IN (SELECT id_str FROM temp_fake_user_ids);
+    -- 7. Profillarni tozalash
+    WITH del_profs AS (
+        DELETE FROM public.profiles 
+        WHERE id::text = ANY(v_fake_ids)
+        RETURNING id
+    )
+    SELECT COUNT(*) INTO v_deleted_profiles FROM del_profs;
 
-DROP TABLE IF EXISTS temp_fake_user_ids;
-
-COMMIT;
+    RETURN jsonb_build_object(
+        'status', 'success',
+        'deleted_profiles_count', v_deleted_profiles,
+        'deleted_messages_count', v_deleted_messages,
+        'deleted_chats_count', v_deleted_chats
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 -- ------------------------------------------------------------------------------
--- STEP 3: KELGUSIDA FAKE/SPAM AKKAUNTLAR OLDINI OLISH BO'YICHA TAVSIYALAR
+-- 2. TOZALASHNI AMALGA OSHIRISH (Run this to clean up immediately)
 -- ------------------------------------------------------------------------------
--- 1. Email tasdiqlashni majburiy qilish:
---    Supabase Dashboard -> Authentication -> Providers -> Email -> "Confirm email" ni yoqing.
---
--- 2. Cloudflare Turnstile yoki reCAPTCHA v3 qo'shish:
---    Supabase Dashboard -> Authentication -> Bot Detection -> Turnstile ni yoqing.
---
--- 3. Username validatsiya triggeri (zaxiralangan so'zlardan saqlash):
+SELECT public.cleanup_fake_accounts();
+
+
+-- ------------------------------------------------------------------------------
+-- 3. KELGUSIDA FAKE / INVALID USERNAME'LARNI TO'SISH TRIGGERI
+-- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.check_username_validity()
 RETURNS TRIGGER AS $$
 BEGIN

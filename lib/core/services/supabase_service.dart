@@ -268,6 +268,56 @@ class SupabaseService {
   }
 
   // CHATS
+  Future<Map<String, dynamic>?> getOrCreateDirectConversation({
+    required String user1Id,
+    required String user2Id,
+    String? user1Username,
+    String? user2Username,
+  }) async {
+    if (!isInitialized) return null;
+    try {
+      // 1. Try calling the PostgreSQL RPC function
+      final response = await _client!.rpc(
+        'get_or_create_conversation',
+        params: {
+          'p_user1_id': user1Id,
+          'p_user2_id': user2Id,
+        },
+      );
+      if (response != null) {
+        final map = Map<String, dynamic>.from(response as Map);
+        debugPrint('[SupabaseService] get_or_create_conversation RPC returned chatId: ${map['id']}');
+        return map;
+      }
+    } catch (e) {
+      debugPrint('[SupabaseService] get_or_create_conversation RPC fallback: $e');
+    }
+
+    // 2. Client-side deterministic fallback
+    try {
+      final u1 = (user1Username ?? user1Id).trim().toLowerCase().replaceAll('@', '').replaceAll('user-', '');
+      final u2 = (user2Username ?? user2Id).trim().toLowerCase().replaceAll('@', '').replaceAll('user-', '');
+      final chatId = ChatConversation.computeDirectChatId(u1, u2);
+
+      await createOrEnsureChat(
+        chatId: chatId,
+        isGroup: false,
+        createdBy: user1Id,
+        participantIds: [user1Id, user2Id, u1, u2],
+      );
+
+      debugPrint('[SupabaseService] Deterministic fallback created chatId: $chatId');
+      return {
+        'id': chatId,
+        'is_group': false,
+        'created_by': user1Id,
+      };
+    } catch (err) {
+      debugPrint('[SupabaseService] Error in getOrCreateDirectConversation: $err');
+      return null;
+    }
+  }
+
   Future<bool> createOrEnsureChat({
     required String chatId,
     required bool isGroup,
@@ -286,7 +336,8 @@ class SupabaseService {
         'created_by': createdBy,
       });
 
-      for (final uid in participantIds) {
+      final uniqueUids = participantIds.where((u) => u.trim().isNotEmpty).toSet();
+      for (final uid in uniqueUids) {
         await _client!.from('chat_participants').upsert({
           'chat_id': chatId,
           'user_id': uid,
@@ -474,9 +525,10 @@ class SupabaseService {
         if (newRecord.isNotEmpty) {
           try {
             final message = ChatMessage.fromJson(newRecord);
+            debugPrint('[Realtime Chat] Received postgres_changes message: id=${message.id}, chat_id=${message.chatId} (listening on: $chatId)');
             onMessageReceived(message);
           } catch (e) {
-            debugPrint('Error decoding chat message payload: $e');
+            debugPrint('[Realtime Chat] Error decoding chat message payload: $e');
           }
         }
       },
@@ -487,15 +539,16 @@ class SupabaseService {
       callback: (payload) {
         try {
           final message = ChatMessage.fromJson(payload);
+          debugPrint('[Realtime Chat] Received broadcast message: id=${message.id}, chat_id=${message.chatId} (listening on: $chatId)');
           onMessageReceived(message);
         } catch (e) {
-          debugPrint('Error decoding chat broadcast payload: $e');
+          debugPrint('[Realtime Chat] Error decoding chat broadcast payload: $e');
         }
       },
     );
 
     channel.subscribe((status, [error]) {
-      debugPrint('Realtime chat channel [$chatId] status: $status, error: $error');
+      debugPrint('[Realtime Chat] Channel [$chatId] status: $status, error: $error');
     });
     return channel;
   }
@@ -524,13 +577,14 @@ class SupabaseService {
         if (newRecord.isNotEmpty) {
           try {
             final message = ChatMessage.fromJson(newRecord);
+            debugPrint('[Realtime Global] Received postgres_changes: id=${message.id}, chat_id=${message.chatId}, sender=${message.senderId}');
             if (payload.eventType == PostgresChangeEvent.insert) {
               onMessageReceived(message);
             } else if (payload.eventType == PostgresChangeEvent.update) {
               onMessageUpdated?.call(message);
             }
           } catch (e) {
-            debugPrint('Error decoding realtime postgres message: $e');
+            debugPrint('[Realtime Global] Error decoding realtime postgres message: $e');
           }
         }
       },
@@ -541,33 +595,41 @@ class SupabaseService {
       callback: (payload) {
         try {
           final message = ChatMessage.fromJson(payload);
+          debugPrint('[Realtime Global] Received broadcast: id=${message.id}, chat_id=${message.chatId}, sender=${message.senderId}');
           onMessageReceived(message);
         } catch (e) {
-          debugPrint('Error decoding broadcast message: $e');
+          debugPrint('[Realtime Global] Error decoding broadcast message: $e');
         }
       },
     );
 
     channel.subscribe((status, [error]) {
-      debugPrint('Realtime global messages channel status: $status, error: $error');
+      debugPrint('[Realtime Global] Global messages channel status: $status, error: $error');
     });
     _globalChannel = channel;
     return channel;
   }
 
   /// Fetch all conversations for a user from Supabase (via chat_participants table)
-  Future<List<ChatConversation>> fetchUserConversations(String userId) async {
+  Future<List<ChatConversation>> fetchUserConversations(String userId, {String? username}) async {
     if (!isInitialized) return [];
     try {
+      final queryIds = <String>{userId};
+      if (username != null && username.isNotEmpty) {
+        final cleanU = username.trim().toLowerCase().replaceAll('@', '');
+        queryIds.add(cleanU);
+        queryIds.add('user-$cleanU');
+      }
+
       // Get all chat IDs where this user is a participant
       final participantRows = await _client!
           .from('chat_participants')
           .select('chat_id, unread_count')
-          .eq('user_id', userId);
+          .inFilter('user_id', queryIds.toList());
 
       if ((participantRows as List).isEmpty) return [];
 
-      final chatIds = participantRows.map((r) => r['chat_id'] as String).toList();
+      final chatIds = participantRows.map((r) => r['chat_id'] as String).toSet().toList();
       final unreadMap = <String, int>{};
       for (final r in participantRows) {
         unreadMap[r['chat_id'] as String] = r['unread_count'] as int? ?? 0;
@@ -591,10 +653,17 @@ class SupabaseService {
             .eq('chat_id', chatId);
 
         final List<UserProfile> participants = [];
+        final seenUsernames = <String>{};
         for (final pr in partRows as List) {
           final uid = pr['user_id'] as String;
           final profile = await fetchProfile(uid);
-          if (profile != null) participants.add(profile);
+          if (profile != null) {
+            final pUser = profile.username.toLowerCase();
+            if (!seenUsernames.contains(pUser)) {
+              seenUsernames.add(pUser);
+              participants.add(profile);
+            }
+          }
         }
 
         // Fetch latest message from messages table to get exact latest content, sender, and time
@@ -636,11 +705,23 @@ class SupabaseService {
           }
         } catch (_) {}
 
+        final isGroup = chatRow['is_group'] as bool? ?? false;
+        String name = chatRow['group_name'] as String? ?? 'Chat';
+        String? avatar = chatRow['group_avatar'] as String?;
+        if (!isGroup && participants.isNotEmpty) {
+          final other = participants.firstWhere(
+            (p) => p.id != userId && (username == null || p.username.toLowerCase() != username.toLowerCase()),
+            orElse: () => participants.first,
+          );
+          name = other.fullName.isNotEmpty ? other.fullName : other.username;
+          avatar = other.avatarUrl ?? avatar;
+        }
+
         conversations.add(ChatConversation(
           id: chatId,
-          isGroup: chatRow['is_group'] as bool? ?? false,
-          name: chatRow['group_name'] as String? ?? 'Chat',
-          avatarUrl: chatRow['group_avatar'] as String?,
+          isGroup: isGroup,
+          name: name,
+          avatarUrl: avatar,
           createdBy: chatRow['created_by'] as String?,
           adminIds: (chatRow['admin_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
           blockedMemberIds: (chatRow['blocked_member_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],

@@ -130,7 +130,94 @@ CREATE INDEX IF NOT EXISTS idx_chat_participants_user_id ON public.chat_particip
 CREATE INDEX IF NOT EXISTS idx_profiles_username ON public.profiles(username);
 CREATE INDEX IF NOT EXISTS idx_user_devices_user_id ON public.user_devices(user_id);
 
--- 10. AVTOMATIK SUHBAT YARATUVCHI DATABASE TRIGGER
+-- 10. DETERMINISTIK BIRGA-BIR SUHBAT YARATISH VA TOPISH FUNKSIYASI (get_or_create_conversation)
+CREATE OR REPLACE FUNCTION public.get_or_create_conversation(
+    p_user1_id TEXT,
+    p_user2_id TEXT
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_user1 public.profiles%ROWTYPE;
+    v_user2 public.profiles%ROWTYPE;
+    v_u1_clean TEXT;
+    v_u2_clean TEXT;
+    v_chat_id TEXT;
+    v_chat public.chats%ROWTYPE;
+    v_user1_actual_id TEXT;
+    v_user2_actual_id TEXT;
+BEGIN
+    -- 1. Foydalanuvchilarni profil jadvalidan aniqlash (id yoki username orqali)
+    SELECT * INTO v_user1 FROM public.profiles 
+    WHERE id = p_user1_id OR username = lower(trim(replace(p_user1_id, '@', ''))) OR id = ('user-' || lower(trim(replace(p_user1_id, '@', ''))))
+    LIMIT 1;
+
+    SELECT * INTO v_user2 FROM public.profiles 
+    WHERE id = p_user2_id OR username = lower(trim(replace(p_user2_id, '@', ''))) OR id = ('user-' || lower(trim(replace(p_user2_id, '@', ''))))
+    LIMIT 1;
+
+    -- Username'larni tozalash
+    IF v_user1.username IS NOT NULL THEN
+        v_u1_clean := lower(trim(replace(v_user1.username, '@', '')));
+        v_user1_actual_id := v_user1.id;
+    ELSE
+        v_u1_clean := lower(trim(replace(replace(p_user1_id, 'user-', ''), '@', '')));
+        v_user1_actual_id := p_user1_id;
+    END IF;
+
+    IF v_user2.username IS NOT NULL THEN
+        v_u2_clean := lower(trim(replace(v_user2.username, '@', '')));
+        v_user2_actual_id := v_user2.id;
+    ELSE
+        v_u2_clean := lower(trim(replace(replace(p_user2_id, 'user-', ''), '@', '')));
+        v_user2_actual_id := p_user2_id;
+    END IF;
+
+    -- 2. Deterministik UUID v5 hisoblash (alfabit bo'yicha saralangan usernames)
+    v_chat_id := uuid_generate_v5(
+        '6ba7b811-9dad-11d1-80b4-00c04fd430c8'::uuid,
+        'supachat:direct:' || LEAST(v_u1_clean, v_u2_clean) || ':' || GREATEST(v_u1_clean, v_u2_clean)
+    )::text;
+
+    -- 3. Suhbat qatorini chats jadvalida ta'minlash
+    INSERT INTO public.chats (id, is_group, created_by, created_at)
+    VALUES (v_chat_id, false, v_user1_actual_id, NOW())
+    ON CONFLICT (id) DO NOTHING;
+
+    -- 4. Ikkala ishtirokchini ham chat_participants jadvaliga qo'shish
+    INSERT INTO public.chat_participants (chat_id, user_id, role, unread_count)
+    VALUES 
+        (v_chat_id, v_user1_actual_id, 'member', 0),
+        (v_chat_id, v_user2_actual_id, 'member', 0)
+    ON CONFLICT (chat_id, user_id) DO NOTHING;
+
+    -- Moslik uchun username/alias identifikatorlarini ham kiritish
+    IF v_user1_actual_id != v_u1_clean THEN
+        INSERT INTO public.chat_participants (chat_id, user_id, role, unread_count)
+        VALUES (v_chat_id, v_u1_clean, 'member', 0)
+        ON CONFLICT (chat_id, user_id) DO NOTHING;
+    END IF;
+    IF v_user2_actual_id != v_u2_clean THEN
+        INSERT INTO public.chat_participants (chat_id, user_id, role, unread_count)
+        VALUES (v_chat_id, v_u2_clean, 'member', 0)
+        ON CONFLICT (chat_id, user_id) DO NOTHING;
+    END IF;
+
+    SELECT * INTO v_chat FROM public.chats WHERE id = v_chat_id;
+
+    RETURN jsonb_build_object(
+        'id', v_chat_id,
+        'is_group', false,
+        'created_by', v_chat.created_by,
+        'last_message_text', v_chat.last_message_text,
+        'last_message_type', v_chat.last_message_type,
+        'last_message_sender_id', v_chat.last_message_sender_id,
+        'last_message_at', v_chat.last_message_at,
+        'created_at', v_chat.created_at
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 11. AVTOMATIK SUHBAT YARATUVCHI VA YANGILOVCHI DATABASE TRIGGER
 CREATE OR REPLACE FUNCTION public.handle_new_message_conversation()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -171,6 +258,61 @@ CREATE TRIGGER trg_new_message_conversation
   AFTER INSERT ON public.messages
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_new_message_conversation();
+
+-- 12. DUBLIKAT SUHBATLARNI BIRLASHTIRISH VA TOZALASH SKRIPTI (Database Cleanup Helper)
+CREATE OR REPLACE FUNCTION public.cleanup_and_merge_duplicate_conversations()
+RETURNS VOID AS $$
+DECLARE
+    r RECORD;
+    v_canonical_id TEXT;
+    v_u1 TEXT;
+    v_u2 TEXT;
+BEGIN
+    -- Har bir 1-on-1 suhbat ishtirokchilarini tahlil qilish
+    FOR r IN (
+        SELECT cp1.chat_id, cp1.user_id as u1, cp2.user_id as u2, c.is_group
+        FROM public.chat_participants cp1
+        JOIN public.chat_participants cp2 ON cp1.chat_id = cp2.chat_id AND cp1.user_id < cp2.user_id
+        JOIN public.chats c ON c.id = cp1.chat_id
+        WHERE c.is_group = false
+    ) LOOP
+        -- Canonical ID hisoblash
+        SELECT lower(trim(replace(username, '@', ''))) INTO v_u1 FROM public.profiles WHERE id = r.u1;
+        IF v_u1 IS NULL THEN v_u1 := lower(trim(replace(r.u1, 'user-', ''))); END IF;
+
+        SELECT lower(trim(replace(username, '@', ''))) INTO v_u2 FROM public.profiles WHERE id = r.u2;
+        IF v_u2 IS NULL THEN v_u2 := lower(trim(replace(r.u2, 'user-', ''))); END IF;
+
+        v_canonical_id := uuid_generate_v5(
+            '6ba7b811-9dad-11d1-80b4-00c04fd430c8'::uuid,
+            'supachat:direct:' || LEAST(v_u1, v_u2) || ':' || GREATEST(v_u1, v_u2)
+        )::text;
+
+        -- Agar eski chat_id kanonik bo'lmasa, ma'lumotlarni ko'chirish
+        IF r.chat_id != v_canonical_id THEN
+            -- Kanonik suhbat qatorini yaratish
+            INSERT INTO public.chats (id, is_group, created_by, created_at)
+            VALUES (v_canonical_id, false, r.u1, NOW())
+            ON CONFLICT (id) DO NOTHING;
+
+            -- Ishtirokchilarni ko'chirish
+            INSERT INTO public.chat_participants (chat_id, user_id, role, unread_count)
+            VALUES (v_canonical_id, r.u1, 'member', 0), (v_canonical_id, r.u2, 'member', 0)
+            ON CONFLICT (chat_id, user_id) DO NOTHING;
+
+            -- Xabarlarni ko'chirish
+            UPDATE public.messages SET chat_id = v_canonical_id WHERE chat_id = r.chat_id;
+
+            -- Qo'ng'iroqlarni ko'chirish
+            UPDATE public.calls SET chat_id = v_canonical_id WHERE chat_id = r.chat_id;
+
+            -- Eski dublikat suhbat va ishtirokchilarni o'chirish
+            DELETE FROM public.chat_participants WHERE chat_id = r.chat_id;
+            DELETE FROM public.chats WHERE id = r.chat_id;
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 11. REALTIME PUBLICATION SOZLAMALARI
 DO $$

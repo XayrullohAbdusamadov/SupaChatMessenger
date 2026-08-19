@@ -1,3 +1,4 @@
+import 'package:uuid/uuid.dart';
 import 'user_profile.dart';
 import 'chat_message.dart';
 
@@ -39,6 +40,13 @@ class ChatConversation {
     this.typingUserName,
     this.draftMessage,
   }) : lastMessageAt = lastMessageAt ?? DateTime.now();
+
+  static String computeDirectChatId(String user1, String user2) {
+    final u1 = user1.trim().toLowerCase().replaceAll('@', '').replaceAll('user-', '');
+    final u2 = user2.trim().toLowerCase().replaceAll('@', '').replaceAll('user-', '');
+    final sorted = [u1, u2]..sort();
+    return const Uuid().v5(Namespace.url.value, 'supachat:direct:${sorted[0]}:${sorted[1]}');
+  }
 
   bool isOwner(String userId) => createdBy == userId;
   bool isAdmin(String userId) => isOwner(userId) || adminIds.contains(userId);
@@ -106,6 +114,13 @@ class ChatConversation {
     List<UserProfile> participants = const [],
     ChatMessage? lastMessage,
   }) {
+    List<UserProfile> parsedParticipants = List<UserProfile>.from(participants);
+    if (parsedParticipants.isEmpty && json['participants'] != null && json['participants'] is List) {
+      parsedParticipants = (json['participants'] as List)
+          .map((p) => UserProfile.fromJson(p as Map<String, dynamic>))
+          .toList();
+    }
+
     return ChatConversation(
       id: json['id'] as String,
       isGroup: json['is_group'] as bool? ?? false,
@@ -114,7 +129,7 @@ class ChatConversation {
       createdBy: json['created_by'] as String?,
       adminIds: (json['admin_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
       blockedMemberIds: (json['blocked_member_ids'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
-      participants: participants,
+      participants: parsedParticipants,
       lastMessage: lastMessage,
       lastMessageText: json['last_message_text'] as String?,
       lastMessageType: json['last_message_type'] != null
@@ -141,6 +156,7 @@ class ChatConversation {
       'created_by': createdBy,
       'admin_ids': adminIds,
       'blocked_member_ids': blockedMemberIds,
+      'participants': participants.map((p) => p.toJson()).toList(),
       'last_message_text': lastMessageText,
       'last_message_type': lastMessageType?.name,
       'last_message_sender_id': lastMessageSenderId,
