@@ -431,6 +431,20 @@ class SupabaseService {
     }
   }
 
+  Future<Map<String, dynamic>?> getChatById(String chatId) async {
+    if (!isInitialized) return null;
+    try {
+      final res = await _client!
+          .from('chats')
+          .select()
+          .eq('id', chatId)
+          .maybeSingle();
+      return res != null ? Map<String, dynamic>.from(res as Map) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   Future<bool> isUserParticipant(String chatId, String userId, {String? username}) async {
     if (!isInitialized) return false;
     try {

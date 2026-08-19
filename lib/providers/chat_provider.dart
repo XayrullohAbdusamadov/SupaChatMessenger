@@ -904,6 +904,17 @@ class ChatProvider extends ChangeNotifier {
       }
     }
 
+    // 5. Direct 1-on-1 chat fallback: accept any 1-on-1 message sent by another user
+    if (!isForMe && _supabaseService.isInitialized) {
+      try {
+        final chatRow = await _supabaseService.getChatById(newMsg.chatId);
+        if (chatRow != null && chatRow['is_group'] != true) {
+          isForMe = true;
+          debugPrint('[ChatProvider] isForMe resolved via direct 1-on-1 chat fallback for: ${newMsg.chatId}');
+        }
+      } catch (_) {}
+    }
+
     // If still not for the current user, drop with debug log
     if (!isForMe) {
       debugPrint(
@@ -1440,12 +1451,21 @@ class ChatProvider extends ChangeNotifier {
             }
 
             // Attach receiver_id so the DB trigger can add receiver as participant
-            final msgWithReceiver = newMsg.copyWith(receiverId: other.id);
+            String targetRecId = other.id;
+            final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+            if (!uuidRegex.hasMatch(targetRecId) && other.username.isNotEmpty) {
+              final pRec = await _supabaseService.fetchProfileByUsername(other.username);
+              if (pRec != null && uuidRegex.hasMatch(pRec.id)) {
+                targetRecId = pRec.id;
+              }
+            }
+
+            final msgWithReceiver = newMsg.copyWith(receiverId: targetRecId);
             final sent = await _supabaseService.sendMessage(msgWithReceiver);
             final idx = _currentMessages.indexWhere((m) => m.id == newMsg.id);
             if (idx != -1) {
               _currentMessages[idx] = _currentMessages[idx].copyWith(
-                receiverId: other.id,
+                receiverId: targetRecId,
                 status: sent != null ? MessageStatus.sent : MessageStatus.delivered,
               );
               if (_activeChat != null) _saveMessagesToLocalCache(_activeChat!.id);
