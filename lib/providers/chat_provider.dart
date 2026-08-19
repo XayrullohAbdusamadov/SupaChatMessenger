@@ -728,7 +728,7 @@ class ChatProvider extends ChangeNotifier {
   Function(ChatMessage message, ChatConversation conversation)? onIncomingNotification;
 
   void triggerNotification(ChatMessage message, ChatConversation conversation) {
-    SoundService.instance.playTiqSound();
+    SoundService.instance.playIncomingSound();
 
     if (_activeChat == null || _activeChat!.id != message.chatId) {
       onIncomingNotification?.call(message, conversation);
@@ -795,7 +795,7 @@ class ChatProvider extends ChangeNotifier {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('last_read_msg_${_activeChat!.id}', newMsg.id);
         if (!isPeriodicSync) {
-          SoundService.instance.playTiqSound();
+          SoundService.instance.playIncomingSound();
         }
         notifyListeners();
       }
@@ -1143,7 +1143,7 @@ class ChatProvider extends ChangeNotifier {
       return;
     }
 
-    SoundService.instance.playTiqSound();
+    SoundService.instance.playSentSound();
 
     if (_editingMessage != null) {
       final editIdx = _currentMessages.indexWhere((m) => m.id == _editingMessage!.id);
