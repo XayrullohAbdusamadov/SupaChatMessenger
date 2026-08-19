@@ -41,8 +41,9 @@ WHERE id IN (
 
 -- 5. chat_participants'da UUID bo'lmagan user_id yozuvlarini o'chirish
 --    (masalan: "salim", "user-anvarjon" kabi username yozuvlar 22P02 xatosiga sabab bo'ladi)
+--    user_id uuid tipida bo'lgani uchun ::text cast qilinadi
 DELETE FROM public.chat_participants
-WHERE user_id !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+WHERE user_id::text !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
 
 -- 6. Ishtirokchisi bo'lmagan orphan chat'larni o'chirish
 DELETE FROM public.messages
