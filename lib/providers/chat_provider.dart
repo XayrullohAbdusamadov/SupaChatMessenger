@@ -876,53 +876,24 @@ class ChatProvider extends ChangeNotifier {
         ? ChatConversation.computeDirectChatId(myUsername, senderUsername)
         : null;
 
-    bool isForMe = false;
+    // In a 1-on-1 messenger, any message sent by another user is for us!
+    bool isForMe = true;
 
-    // 1. Direct match on expected direct chat ID
-    if (expectedDirectId != null && newMsg.chatId == expectedDirectId) {
-      isForMe = true;
-    }
-
-    // 2. Direct match on receiverId
-    if (!isForMe && newMsg.receiverId != null && newMsg.receiverId!.isNotEmpty) {
-      final rec = newMsg.receiverId!;
-      if (rec == currentUserId || (myUsername.isNotEmpty && (rec == myUsername || rec.replaceAll('user-', '') == myUsername))) {
-        isForMe = true;
-      }
-    }
-
-    // 3. Match against existing local conversations
-    if (!isForMe && _conversations.any((c) => c.id == newMsg.chatId)) {
-      isForMe = true;
-    }
-
-    // 4. Server participant check fallback
-    if (!isForMe && _supabaseService.isInitialized) {
-      isForMe = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId, username: myUsername);
-      if (isForMe) {
-        debugPrint('[ChatProvider] isForMe resolved via server participant check for chat: ${newMsg.chatId}');
-      }
-    }
-
-    // 5. Direct 1-on-1 chat fallback: accept any 1-on-1 message sent by another user
-    if (!isForMe && _supabaseService.isInitialized) {
+    // Only filter out if it's a group chat where current user is not a participant
+    if (_supabaseService.isInitialized) {
       try {
         final chatRow = await _supabaseService.getChatById(newMsg.chatId);
-        if (chatRow != null && chatRow['is_group'] != true) {
-          isForMe = true;
-          debugPrint('[ChatProvider] isForMe resolved via direct 1-on-1 chat fallback for: ${newMsg.chatId}');
+        if (chatRow != null && chatRow['is_group'] == true) {
+          final isPart = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId, username: myUsername);
+          if (!isPart) {
+            isForMe = false;
+          }
         }
       } catch (_) {}
     }
 
-    // If still not for the current user, drop with debug log
     if (!isForMe) {
-      debugPrint(
-        '[ChatProvider] Dropped message ${newMsg.id}: chatId=${newMsg.chatId}, '
-        'myUsername=$myUsername, sender=$senderUsername, '
-        'expectedDirectId=$expectedDirectId, '
-        'inLocalConversations=${_conversations.any((c) => c.id == newMsg.chatId)}',
-      );
+      debugPrint('[ChatProvider] Dropped group message ${newMsg.id}: not a participant');
       return;
     }
 
