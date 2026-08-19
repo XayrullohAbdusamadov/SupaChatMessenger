@@ -63,6 +63,35 @@ void main() {
     expect(restoredConv.getDisplayName('u2', currentUsername: 'bob'), equals('Alice Smith'));
   });
 
+  test('ChatMessage serialization preserves replyToMessage and replyToId', () {
+    final originalReply = ChatMessage(
+      id: 'msg-001',
+      chatId: 'chat-001',
+      senderId: 'user-alice',
+      content: 'Salom, qandaysiz?',
+    );
+
+    final replyMsg = ChatMessage(
+      id: 'msg-002',
+      chatId: 'chat-001',
+      senderId: 'user-bob',
+      replyToId: originalReply.id,
+      replyToMessage: originalReply,
+      content: 'Rahmat, yaxshi!',
+    );
+
+    final json = replyMsg.toJson();
+    expect(json['reply_to_id'], equals('msg-001'));
+    expect(json['reply_to_message'], isNotNull);
+    expect(json['reply_to_message']['content'], equals('Salom, qandaysiz?'));
+
+    final restored = ChatMessage.fromJson(json);
+    expect(restored.replyToId, equals('msg-001'));
+    expect(restored.replyToMessage, isNotNull);
+    expect(restored.replyToMessage!.content, equals('Salom, qandaysiz?'));
+    expect(restored.replyToMessage!.senderId, equals('user-alice'));
+  });
+
   test('Realtime Channel connects and receives broadcast/postgres events', () async {
     final client = Supabase.instance.client;
     final channel = client.channel(

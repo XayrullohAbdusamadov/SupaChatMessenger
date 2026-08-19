@@ -418,7 +418,7 @@ class SupabaseService {
     try {
       final inserted = await _client!
           .from('messages')
-          .insert(message.toJson())
+          .insert(message.toSupabaseJson())
           .select()
           .single();
 

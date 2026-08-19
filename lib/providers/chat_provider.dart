@@ -146,7 +146,7 @@ class ChatProvider extends ChangeNotifier {
     }
     if (changed || map.length != _currentMessages.length) {
       final list = map.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      _currentMessages = list;
+      _currentMessages = _hydrateReplies(list);
       if (_currentMessages.isNotEmpty) {
         _updateLastMessage(_currentMessages.last);
       }
@@ -693,6 +693,25 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  ChatMessage? getMessageById(String id) {
+    try {
+      return _currentMessages.firstWhere((m) => m.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<ChatMessage> _hydrateReplies(List<ChatMessage> messages) {
+    if (messages.isEmpty) return messages;
+    final map = <String, ChatMessage>{for (final m in messages) m.id: m};
+    return messages.map((m) {
+      if (m.replyToId != null && m.replyToMessage == null && map.containsKey(m.replyToId)) {
+        return m.copyWith(replyToMessage: map[m.replyToId]);
+      }
+      return m;
+    }).toList();
+  }
+
   Future<void> _loadMessagesFromLocalCache(String chatId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -702,7 +721,8 @@ class ChatProvider extends ChangeNotifier {
       final jsonStr = prefs.getString(cacheKey);
       if (jsonStr != null && jsonStr.isNotEmpty) {
         final List decoded = jsonDecode(jsonStr);
-        _currentMessages = decoded.map((j) => ChatMessage.fromJson(j)).toList();
+        final raw = decoded.map((j) => ChatMessage.fromJson(j)).toList();
+        _currentMessages = _hydrateReplies(raw);
       } else {
         _currentMessages = [];
       }
@@ -786,14 +806,24 @@ class ChatProvider extends ChangeNotifier {
 
     if (isCurrentActiveChat) {
       if (!_currentMessages.any((m) => m.id == newMsg.id)) {
-        _currentMessages.add(newMsg);
-        _updateLastMessage(newMsg);
+        var msgToAdd = newMsg;
+        if (msgToAdd.replyToId != null && msgToAdd.replyToMessage == null) {
+          final foundReply = _currentMessages.firstWhere(
+            (m) => m.id == msgToAdd.replyToId,
+            orElse: () => msgToAdd,
+          );
+          if (foundReply != msgToAdd) {
+            msgToAdd = msgToAdd.copyWith(replyToMessage: foundReply);
+          }
+        }
+        _currentMessages.add(msgToAdd);
+        _updateLastMessage(msgToAdd);
         _saveMessagesToLocalCache(_activeChat!.id);
         if (_activeChat!.id != newMsg.chatId) {
           _saveMessagesToLocalCache(newMsg.chatId);
         }
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('last_read_msg_${_activeChat!.id}', newMsg.id);
+        await prefs.setString('last_read_msg_${_activeChat!.id}', msgToAdd.id);
         if (!isPeriodicSync) {
           SoundService.instance.playIncomingSound();
         }

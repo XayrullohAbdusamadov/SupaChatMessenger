@@ -68,10 +68,10 @@ class SoundService {
     }
   }
 
-  /// Generates a modern, satisfying Telegram-style message sent "pop" sound
+  /// Generates an authentic Telegram-style organic bubble pop ("ko'pik yorilishi") sound
   static Uint8List _generateSentWavBytes() {
     const sampleRate = 44100;
-    const durationMs = 110; // 110ms snappy, pleasing bubble-pop
+    const durationMs = 58; // 58ms short, snappy, satisfying bubble pop
     final numSamples = (sampleRate * durationMs ~/ 1000);
     final dataSize = numSamples * 2;
     final fileSize = 36 + dataSize;
@@ -97,32 +97,33 @@ class SoundService {
     bytes.setUint8(36, 0x64); bytes.setUint8(37, 0x61); bytes.setUint8(38, 0x74); bytes.setUint8(39, 0x61); // 'data'
     bytes.setUint32(40, dataSize, Endian.little);
 
-    // ── Synthesis: Sweet ascending bubble pop with warm harmonics ──
+    // ── Organic Bubble Pop Physical Resonance Synthesis ──────────
+    // Rapid acoustic pitch swoop: 380Hz -> 920Hz (like physical bubble burst)
     double phase = 0.0;
     for (int i = 0; i < numSamples; i++) {
-      final t = i / sampleRate; // Time in seconds
+      final t = i / sampleRate;
       final progress = i / numSamples;
 
-      // Frequency rises gently from 680Hz to 1120Hz (creates that bubbly upward pop)
-      final freq = 680.0 + (440.0 * (1.0 - exp(-t * 40.0)));
+      // Frequency sweeps quickly up in the first 12ms
+      final freq = 380.0 + 540.0 * (1.0 - exp(-t * 90.0));
       phase += 2 * pi * freq / sampleRate;
 
-      // Envelope: Soft 4ms attack, smooth exponential decay
+      // Organic Envelope: 2.5ms fast linear attack, natural damped decay
       double envelope;
-      if (t < 0.005) {
-        envelope = t / 0.005; // Quick linear fade-in to prevent initial click
+      if (t < 0.0025) {
+        envelope = t / 0.0025;
       } else {
-        envelope = exp(-(t - 0.005) * 28.0);
+        envelope = exp(-(t - 0.0025) * 58.0);
       }
 
-      // End fade-out (last 5%) to guarantee zero pop
-      if (progress > 0.9) {
-        envelope *= (1.0 - (progress - 0.9) / 0.1);
+      // Smooth taper at the tail to prevent any click
+      if (progress > 0.85) {
+        envelope *= (1.0 - (progress - 0.85) / 0.15);
       }
 
-      // Warm harmonic combination: Fundamental + gentle 2nd harmonic
-      final sample = (sin(phase) * 0.75 + sin(phase * 2.0) * 0.25) * envelope;
-      final sampleVal = (sample * 24000).toInt().clamp(-32768, 32767);
+      // Warm bubble harmonic profile
+      final sample = (sin(phase) * 0.85 + sin(phase * 2.0) * 0.15) * envelope;
+      final sampleVal = (sample * 26000).toInt().clamp(-32768, 32767);
 
       bytes.setInt16(44 + (i * 2), sampleVal, Endian.little);
     }

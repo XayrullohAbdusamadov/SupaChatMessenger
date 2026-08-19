@@ -5,6 +5,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/avatar_helper.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../data/models/chat_message.dart';
+import '../../../../data/models/user_profile.dart';
 import '../../../../providers/chat_provider.dart';
 import 'voice_message_player.dart';
 import 'media_attachment_card.dart';
@@ -122,8 +123,17 @@ class MessageBubble extends StatelessWidget {
                         ),
 
                       // REPLY PREVIEW IF ANY
-                      if (message.replyToMessage != null)
-                        _buildReplyPreview(context, message.replyToMessage!, isDark),
+                      Builder(
+                        builder: (ctx) {
+                          final chatProv = ctx.watch<ChatProvider>();
+                          final resolvedReply = message.replyToMessage ??
+                              (message.replyToId != null
+                                  ? chatProv.getMessageById(message.replyToId!)
+                                  : null);
+                          if (resolvedReply == null) return const SizedBox.shrink();
+                          return _buildReplyPreview(ctx, resolvedReply, isDark, chatProv);
+                        },
+                      ),
 
                       // BODY CONTENT BY TYPE
                       if (message.messageType == MessageType.voice)
@@ -237,7 +247,44 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildReplyPreview(BuildContext context, ChatMessage reply, bool isDark) {
+  Widget _buildReplyPreview(BuildContext context, ChatMessage reply, bool isDark, ChatProvider chatProvider) {
+    final currentUserId = chatProvider.currentActiveUserId;
+    final cleanMyUsername = chatProvider.currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
+    final cleanReplySender = reply.senderId.replaceAll('user-', '').trim().toLowerCase().replaceAll('@', '');
+
+    final isReplyFromMe = (currentUserId != null && reply.senderId == currentUserId) ||
+        (cleanMyUsername.isNotEmpty && cleanReplySender == cleanMyUsername);
+
+    String replyAuthor = isReplyFromMe ? 'Siz' : 'Ishtirokchi';
+    if (!isReplyFromMe) {
+      final activeChat = chatProvider.activeChat;
+      if (activeChat != null) {
+        final participant = activeChat.participants.firstWhere(
+          (p) => p.id == reply.senderId || p.username.trim().toLowerCase().replaceAll('@', '') == cleanReplySender,
+          orElse: () => UserProfile(id: reply.senderId, username: cleanReplySender, fullName: ''),
+        );
+        if (participant.fullName.isNotEmpty) {
+          replyAuthor = participant.fullName;
+        } else if (participant.username.isNotEmpty) {
+          replyAuthor = participant.username;
+        } else if (!activeChat.isGroup && activeChat.name.isNotEmpty) {
+          replyAuthor = activeChat.name;
+        }
+      }
+    }
+
+    String previewText = reply.content;
+    if (reply.messageType == MessageType.voice) {
+      previewText = '🎤 Ovozli xabar (${reply.voiceDuration ?? 14}s)';
+    } else if (reply.messageType == MessageType.image) {
+      previewText = '📷 Rasm';
+    } else if (reply.messageType == MessageType.video) {
+      previewText = '🎥 Video';
+    } else if (reply.messageType == MessageType.doc) {
+      previewText = '📄 ${reply.fileName ?? "Hujjat"}';
+    }
+    if (previewText.trim().isEmpty) previewText = 'Xabar';
+
     return Container(
       margin: const EdgeInsets.fromLTRB(8, 8, 8, 0),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -255,7 +302,7 @@ class MessageBubble extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isMe ? 'Siz' : 'Ishtirokchi',
+            replyAuthor,
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -264,7 +311,7 @@ class MessageBubble extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            reply.content,
+            previewText,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(

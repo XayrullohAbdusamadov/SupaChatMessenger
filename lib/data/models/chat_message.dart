@@ -93,12 +93,20 @@ class ChatMessage {
       reactList = List<String>.from(json['reactions']);
     }
 
+    ChatMessage? replyMsg;
+    if (json['reply_to_message'] != null && json['reply_to_message'] is Map) {
+      try {
+        replyMsg = ChatMessage.fromJson(Map<String, dynamic>.from(json['reply_to_message']));
+      } catch (_) {}
+    }
+    replyMsg ??= replyMessage;
+
     return ChatMessage(
       id: json['id'] as String,
       chatId: json['chat_id'] as String,
       senderId: json['sender_id'] as String,
       replyToId: json['reply_to_id'] as String?,
-      replyToMessage: replyMessage,
+      replyToMessage: replyMsg,
       messageType: type,
       content: json['content'] as String? ?? '',
       mediaUrl: json['media_url'] as String?,
@@ -116,6 +124,27 @@ class ChatMessage {
   }
 
   Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'chat_id': chatId,
+      'sender_id': senderId,
+      'reply_to_id': replyToId,
+      'reply_to_message': replyToMessage?.toJson(),
+      'message_type': messageType.name,
+      'content': content,
+      'media_url': mediaUrl,
+      'media_size': mediaSize,
+      'file_name': fileName,
+      'voice_duration': voiceDuration,
+      'status': status.name,
+      'is_edited': isEdited,
+      'is_deleted': isDeleted,
+      'reactions': reactions,
+      'created_at': createdAt.toIso8601String(),
+    };
+  }
+
+  Map<String, dynamic> toSupabaseJson() {
     return {
       'id': id,
       'chat_id': chatId,
