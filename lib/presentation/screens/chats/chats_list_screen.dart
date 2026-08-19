@@ -48,6 +48,12 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentUser = authProvider.currentUser;
 
+    if (currentUser.id.isNotEmpty && chatProvider.currentActiveUserId != currentUser.id) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        chatProvider.loadUserData(currentUser.id, username: currentUser.username);
+      });
+    }
+
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 16,

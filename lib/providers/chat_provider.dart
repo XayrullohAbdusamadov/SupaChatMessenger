@@ -791,12 +791,22 @@ class ChatProvider extends ChangeNotifier {
 
     final expectedDirectId = (myUsername.isNotEmpty && senderUsername.isNotEmpty)
         ? ChatConversation.computeDirectChatId(myUsername, senderUsername)
-        : newMsg.chatId;
+        : null;
+
+    final bool isForMe = (expectedDirectId != null && newMsg.chatId == expectedDirectId) ||
+        _conversations.any((c) => c.id == newMsg.chatId);
+
+    // If this message is not for the current user, ignore
+    if (!isForMe) {
+      return;
+    }
+
+    final targetChatId = expectedDirectId ?? newMsg.chatId;
 
     // Check if this chat is currently open and active
     bool isCurrentActiveChat = false;
     if (_activeChat != null) {
-      if (_activeChat!.id == newMsg.chatId || _activeChat!.id == expectedDirectId) {
+      if (_activeChat!.id == newMsg.chatId || (expectedDirectId != null && _activeChat!.id == expectedDirectId)) {
         isCurrentActiveChat = true;
       } else if (!_activeChat!.isGroup && myUsername.isNotEmpty && senderUsername.isNotEmpty) {
         final activeOther = _activeChat!.getOtherParticipant(currentUserId, currentUsername: myUsername);
@@ -837,7 +847,7 @@ class ChatProvider extends ChangeNotifier {
     // Chat is NOT open: update or add conversation in list with unread bubble count
     final convIdx = _conversations.indexWhere(
       (c) => c.id == newMsg.chatId ||
-             c.id == expectedDirectId ||
+             (expectedDirectId != null && c.id == expectedDirectId) ||
              (!c.isGroup && c.participants.any((p) => p.username.toLowerCase().replaceAll('@', '') == senderUsername)),
     );
     final cached = await _loadCachedMessagesForChat(newMsg.chatId);
@@ -858,7 +868,7 @@ class ChatProvider extends ChangeNotifier {
       }
 
       conv = existing.copyWith(
-        id: expectedDirectId,
+        id: targetChatId,
         name: existing.isGroup ? existing.name : (senderProfile.fullName.isNotEmpty ? senderProfile.fullName : existing.name),
         avatarUrl: existing.isGroup ? existing.avatarUrl : (senderProfile.avatarUrl ?? existing.avatarUrl),
         participants: updatedParticipants,
@@ -872,7 +882,7 @@ class ChatProvider extends ChangeNotifier {
       _conversations.insert(0, conv);
     } else {
       conv = ChatConversation(
-        id: expectedDirectId,
+        id: targetChatId,
         isGroup: false,
         name: senderProfile.fullName.isNotEmpty ? senderProfile.fullName : senderProfile.username,
         avatarUrl: senderProfile.avatarUrl,
@@ -888,8 +898,8 @@ class ChatProvider extends ChangeNotifier {
 
     _conversations.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
     await _saveConversations();
-    await _appendMessageToLocalCache(expectedDirectId, newMsg);
-    if (newMsg.chatId != expectedDirectId) {
+    await _appendMessageToLocalCache(targetChatId, newMsg);
+    if (newMsg.chatId != targetChatId) {
       await _appendMessageToLocalCache(newMsg.chatId, newMsg);
     }
     notifyListeners();

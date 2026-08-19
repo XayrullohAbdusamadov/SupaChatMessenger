@@ -15,6 +15,7 @@ class SupabaseService {
   bool _isInitialized = false;
   String? _currentSupabaseUrl;
   String? _currentAnonKey;
+  final Map<String, UserProfile> _profileCache = {};
 
   SupabaseClient? get client => _client;
   bool get isInitialized => _isInitialized && _client != null;
@@ -129,7 +130,10 @@ class SupabaseService {
 
   // PROFILES
   Future<UserProfile?> fetchProfile(String userId) async {
-    if (!isInitialized) return null;
+    if (!isInitialized || userId.isEmpty) return null;
+    final cached = _profileCache[userId] ?? _profileCache[userId.toLowerCase()] ?? _profileCache[userId.replaceAll('user-', '').toLowerCase()];
+    if (cached != null) return cached;
+
     try {
       // 1. Try by id
       final response = await _client!
@@ -139,11 +143,15 @@ class SupabaseService {
           .maybeSingle();
 
       if (response != null) {
-        return UserProfile.fromJson(response);
+        final profile = UserProfile.fromJson(response);
+        _profileCache[userId] = profile;
+        _profileCache[profile.id] = profile;
+        _profileCache[profile.username.toLowerCase()] = profile;
+        return profile;
       }
 
       // 2. Try by username
-      final clean = userId.replaceAll('user-', '').trim().toLowerCase();
+      final clean = userId.replaceAll('user-', '').trim().toLowerCase().replaceAll('@', '');
       final responseUser = await _client!
           .from('profiles')
           .select()
@@ -151,7 +159,11 @@ class SupabaseService {
           .maybeSingle();
 
       if (responseUser != null) {
-        return UserProfile.fromJson(responseUser);
+        final profile = UserProfile.fromJson(responseUser);
+        _profileCache[userId] = profile;
+        _profileCache[profile.id] = profile;
+        _profileCache[profile.username.toLowerCase()] = profile;
+        return profile;
       }
     } catch (e) {
       debugPrint('Error fetching profile: $e');
@@ -160,8 +172,11 @@ class SupabaseService {
   }
 
   Future<UserProfile?> fetchProfileByUsername(String username) async {
-    if (!isInitialized) return null;
-    final clean = username.trim().toLowerCase();
+    if (!isInitialized || username.isEmpty) return null;
+    final clean = username.trim().toLowerCase().replaceAll('@', '');
+    final cached = _profileCache[clean];
+    if (cached != null) return cached;
+
     try {
       final response = await _client!
           .from('profiles')
@@ -170,7 +185,11 @@ class SupabaseService {
           .maybeSingle();
 
       if (response != null) {
-        return UserProfile.fromJson(response);
+        final profile = UserProfile.fromJson(response);
+        _profileCache[clean] = profile;
+        _profileCache[profile.id] = profile;
+        _profileCache[profile.username.toLowerCase()] = profile;
+        return profile;
       }
     } catch (e) {
       debugPrint('Error fetching profile by username: $e');
@@ -655,7 +674,7 @@ class SupabaseService {
         queryIds.add('user-$cleanU');
       }
 
-      // Get all chat IDs where this user is a participant
+      // 1. Get all chat IDs where this user is a participant
       final participantRows = await _client!
           .from('chat_participants')
           .select('chat_id, unread_count')
@@ -669,28 +688,57 @@ class SupabaseService {
         unreadMap[r['chat_id'] as String] = r['unread_count'] as int? ?? 0;
       }
 
-      // Fetch chat metadata
+      // 2. Fetch chat metadata
       final chatRows = await _client!
           .from('chats')
           .select()
           .inFilter('id', chatIds)
           .order('last_message_at', ascending: false);
 
+      // 3. Fetch all participants for all these chats in ONE batch query
+      final allPartRows = await _client!
+          .from('chat_participants')
+          .select('chat_id, user_id')
+          .inFilter('chat_id', chatIds);
+
+      final Map<String, List<String>> chatToUserIds = {};
+      final Set<String> allParticipantUserIds = {};
+      for (final r in allPartRows as List) {
+        final cId = r['chat_id'] as String;
+        final uId = r['user_id'] as String;
+        chatToUserIds.putIfAbsent(cId, () => []).add(uId);
+        allParticipantUserIds.add(uId);
+      }
+
+      // 4. Batch fetch all profiles for all participants not yet in cache
+      final missingIds = allParticipantUserIds.where((id) => !_profileCache.containsKey(id) && !_profileCache.containsKey(id.toLowerCase())).toList();
+      if (missingIds.isNotEmpty) {
+        try {
+          final pRows = await _client!
+              .from('profiles')
+              .select()
+              .or('id.in.(${missingIds.join(",")}),username.in.(${missingIds.join(",")})');
+          for (final pr in pRows as List) {
+            final p = UserProfile.fromJson(pr);
+            _profileCache[p.id] = p;
+            _profileCache[p.username.toLowerCase()] = p;
+          }
+        } catch (_) {
+          for (final mid in missingIds) {
+            await fetchProfile(mid);
+          }
+        }
+      }
+
       final List<ChatConversation> conversations = [];
       for (final chatRow in chatRows as List) {
         final chatId = chatRow['id'] as String;
-
-        // Fetch participants for this chat
-        final partRows = await _client!
-            .from('chat_participants')
-            .select('user_id')
-            .eq('chat_id', chatId);
+        final participantUids = chatToUserIds[chatId] ?? [];
 
         final List<UserProfile> participants = [];
         final seenUsernames = <String>{};
-        for (final pr in partRows as List) {
-          final uid = pr['user_id'] as String;
-          final profile = await fetchProfile(uid);
+        for (final uid in participantUids) {
+          final profile = _profileCache[uid] ?? _profileCache[uid.toLowerCase()] ?? _profileCache[uid.replaceAll('user-', '').toLowerCase()];
           if (profile != null) {
             final pUser = profile.username.toLowerCase();
             if (!seenUsernames.contains(pUser)) {
@@ -700,44 +748,12 @@ class SupabaseService {
           }
         }
 
-        // Fetch latest message from messages table to get exact latest content, sender, and time
         String? lastText = chatRow['last_message_text'] as String?;
         String? lastTypeStr = chatRow['last_message_type'] as String?;
         String? lastSenderId = chatRow['last_message_sender_id'] as String?;
         DateTime lastAt = chatRow['last_message_at'] != null
             ? DateTime.tryParse(chatRow['last_message_at'].toString()) ?? DateTime.now()
             : DateTime.now();
-
-        try {
-          final lastMsgRes = await _client!
-              .from('messages')
-              .select('content, message_type, sender_id, file_name, voice_duration, created_at')
-              .eq('chat_id', chatId)
-              .order('created_at', ascending: false)
-              .limit(1)
-              .maybeSingle();
-
-          if (lastMsgRes != null) {
-            final c = lastMsgRes['content'] as String?;
-            final mType = lastMsgRes['message_type'] as String?;
-            if (mType == 'image') {
-              lastText = '📷 Rasm';
-            } else if (mType == 'video') {
-              lastText = '🎥 Video';
-            } else if (mType == 'voice') {
-              lastText = '🎤 Ovozli xabar';
-            } else if (mType == 'doc') {
-              lastText = '📄 ${lastMsgRes['file_name'] ?? "Hujjat"}';
-            } else {
-              lastText = c;
-            }
-            lastTypeStr = mType ?? lastTypeStr;
-            lastSenderId = lastMsgRes['sender_id'] as String? ?? lastSenderId;
-            if (lastMsgRes['created_at'] != null) {
-              lastAt = DateTime.tryParse(lastMsgRes['created_at'].toString()) ?? lastAt;
-            }
-          }
-        } catch (_) {}
 
         final isGroup = chatRow['is_group'] as bool? ?? false;
         String name = chatRow['group_name'] as String? ?? 'Chat';

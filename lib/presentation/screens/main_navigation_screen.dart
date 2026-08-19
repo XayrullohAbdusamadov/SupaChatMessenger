@@ -200,7 +200,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final totalUnread = context.watch<ChatProvider>().totalUnreadCount;
+    final authProvider = context.watch<AuthProvider>();
+    final chatProvider = context.watch<ChatProvider>();
+    final currentUserId = authProvider.currentUser.id;
+    final totalUnread = chatProvider.totalUnreadCount;
+
+    if (currentUserId.isNotEmpty && chatProvider.currentActiveUserId != currentUserId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        chatProvider.loadUserData(currentUserId, username: authProvider.currentUser.username);
+        CallService.instance.initializeForUser(currentUserId);
+      });
+    }
 
     return Scaffold(
       body: IndexedStack(
