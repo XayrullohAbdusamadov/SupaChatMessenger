@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../constants/app_constants.dart';
 import '../../data/models/user_profile.dart';
 import '../../data/models/chat_message.dart';
@@ -322,18 +323,41 @@ class SupabaseService {
       final u2 = (user2Username ?? user2Id).trim().toLowerCase().replaceAll('@', '').replaceAll('user-', '');
       final chatId = ChatConversation.computeDirectChatId(u1, u2);
 
+      // Resolve real UUIDs for both users
+      String realUser1Id = user1Id;
+      String realUser2Id = user2Id;
+      final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+
+      if (!uuidRegex.hasMatch(realUser1Id)) {
+        final p1 = await fetchProfileByUsername(u1);
+        if (p1 != null) {
+          realUser1Id = p1.id;
+        } else {
+          realUser1Id = const Uuid().v5(Namespace.url.value, 'supachat:user:$u1');
+        }
+      }
+
+      if (!uuidRegex.hasMatch(realUser2Id)) {
+        final p2 = await fetchProfileByUsername(u2);
+        if (p2 != null) {
+          realUser2Id = p2.id;
+        } else {
+          realUser2Id = const Uuid().v5(Namespace.url.value, 'supachat:user:$u2');
+        }
+      }
+
       await createOrEnsureChat(
         chatId: chatId,
         isGroup: false,
-        createdBy: user1Id,
-        participantIds: [user1Id, user2Id, u1, u2],
+        createdBy: realUser1Id,
+        participantIds: [realUser1Id, realUser2Id],
       );
 
-      debugPrint('[SupabaseService] Deterministic fallback created chatId: $chatId');
+      debugPrint('[SupabaseService] Deterministic created chatId: $chatId for: $realUser1Id ($u1) & $realUser2Id ($u2)');
       return {
         'id': chatId,
         'is_group': false,
-        'created_by': user1Id,
+        'created_by': realUser1Id,
       };
     } catch (err) {
       debugPrint('[SupabaseService] Error in getOrCreateDirectConversation: $err');
@@ -351,21 +375,27 @@ class SupabaseService {
   }) async {
     if (!isInitialized) return false;
     try {
+      final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+
       await _client!.from('chats').upsert({
         'id': chatId,
         'is_group': isGroup,
         'group_name': groupName,
         'group_avatar': groupAvatar,
-        'created_by': createdBy,
+        'created_by': uuidRegex.hasMatch(createdBy) ? createdBy : null,
       });
 
-      final uniqueUids = participantIds.where((u) => u.trim().isNotEmpty).toSet();
-      for (final uid in uniqueUids) {
-        await _client!.from('chat_participants').upsert({
-          'chat_id': chatId,
-          'user_id': uid,
-          'role': uid == createdBy ? 'admin' : 'member',
-        });
+      final validUids = participantIds.where((u) => uuidRegex.hasMatch(u.trim())).toSet();
+      for (final uid in validUids) {
+        try {
+          await _client!.from('chat_participants').upsert({
+            'chat_id': chatId,
+            'user_id': uid,
+            'role': uid == createdBy ? 'admin' : 'member',
+          });
+        } catch (e) {
+          debugPrint('Error inserting chat participant $uid: $e');
+        }
       }
       return true;
     } catch (e) {
@@ -469,9 +499,25 @@ class SupabaseService {
   Future<ChatMessage?> sendMessage(ChatMessage message) async {
     if (!isInitialized) return null;
     try {
+      final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+      
+      String validSenderId = message.senderId;
+      if (!uuidRegex.hasMatch(validSenderId)) {
+        final cleanSender = validSenderId.replaceAll('user-', '').trim().toLowerCase().replaceAll('@', '');
+        final p = await fetchProfileByUsername(cleanSender);
+        if (p != null) {
+          validSenderId = p.id;
+        } else {
+          validSenderId = const Uuid().v5(Namespace.url.value, 'supachat:user:$cleanSender');
+        }
+      }
+
+      final msgPayload = message.toSupabaseJson();
+      msgPayload['sender_id'] = validSenderId;
+
       final inserted = await _client!
           .from('messages')
-          .insert(message.toSupabaseJson())
+          .insert(msgPayload)
           .select()
           .single();
 
@@ -481,7 +527,7 @@ class SupabaseService {
           'id': message.chatId,
           'last_message_text': message.content.isNotEmpty ? message.content : 'Media xabar',
           'last_message_type': message.messageType.name,
-          'last_message_sender_id': message.senderId,
+          'last_message_sender_id': validSenderId,
           'last_message_at': DateTime.now().toIso8601String(),
         });
       } catch (_) {}
