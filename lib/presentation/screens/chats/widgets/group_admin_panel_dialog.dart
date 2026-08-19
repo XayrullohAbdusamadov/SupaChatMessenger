@@ -5,6 +5,7 @@ import '../../../../core/utils/avatar_helper.dart';
 import '../../../../data/models/chat_conversation.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/chat_provider.dart';
+import 'add_group_members_dialog.dart';
 
 class GroupAdminPanelDialog extends StatelessWidget {
   final ChatConversation conversation;
@@ -93,11 +94,32 @@ class GroupAdminPanelDialog extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            const Text(
-              'Guruh A\'zolari va Huquqlari:',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Guruh A\'zolari va Huquqlari:',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                if (isOwner || isAdmin)
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                      foregroundColor: Colors.green,
+                    ),
+                    icon: const Icon(Icons.person_add_rounded, size: 16),
+                    label: const Text('A\'zo qo\'shish', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => AddGroupMembersDialog(conversation: currentConv),
+                      );
+                    },
+                  ),
+              ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
 
             // MEMBERS LIST
             Expanded(

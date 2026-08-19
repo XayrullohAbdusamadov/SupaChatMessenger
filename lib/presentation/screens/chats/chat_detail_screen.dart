@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/services/call_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -16,6 +17,7 @@ import 'widgets/message_bubble.dart';
 import 'widgets/chat_input_bar.dart';
 import 'widgets/call_overlay.dart';
 import 'widgets/group_admin_panel_dialog.dart';
+import 'widgets/add_group_members_dialog.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final ChatConversation conversation;
@@ -105,6 +107,129 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           chatId: activeConv.id,
         ),
       ),
+    );
+  }
+
+  Future<void> _callContactPhone(BuildContext context, UserProfile contact) async {
+    final raw = contact.phoneNumber.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (raw.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Telefon raqam topilmadi')),
+      );
+      return;
+    }
+    final uri = Uri.parse('tel:$raw');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Qo\'ng\'iroq ilovasini ochib bo\'lmadi: $e')),
+      );
+    }
+  }
+
+  void _showCallOptions(BuildContext context, UserProfile contact, ChatConversation activeConv, UserProfile currentUser) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 20,
+                offset: const Offset(0, -6),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Qo\'ng\'iroq turini tanlang',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? AppTheme.textDarkPrimary : AppTheme.textLightPrimary,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // OPTION 1: NATIVE CELLULAR PHONE CALL (Native phone dialer)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                tileColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.phone_in_talk_rounded, color: Colors.green, size: 22),
+                ),
+                title: const Text('Oddiy telefon qo\'ng\'irog\'i', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                subtitle: Text(
+                  contact.phoneNumber.isNotEmpty ? contact.phoneNumber : 'Telefon ilovasi ochiladi',
+                  style: TextStyle(fontSize: 13, color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _callContactPhone(context, contact);
+                },
+              ),
+              const SizedBox(height: 10),
+
+              // OPTION 2: SUPACHAT INTERNET AUDIO CALL (VoIP)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                tileColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.headset_mic_rounded, color: AppTheme.primary, size: 22),
+                ),
+                title: const Text('SupaChat Audio qo\'ng\'iroq', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                subtitle: Text(
+                  'Ilova ichida bepul internet qo\'ng\'iroq',
+                  style: TextStyle(fontSize: 13, color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _startAudioCall(contact, activeConv, currentUser);
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -329,6 +454,71 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
               const SizedBox(height: 12),
 
+              // PHONE NUMBER CARD
+              if (contact.phoneNumber.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.phone_rounded, color: Colors.green, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Telefon raqam',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              contact.phoneNumber,
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.phone_in_talk_rounded, color: Colors.green, size: 20),
+                        tooltip: 'Oddiy qo\'ng\'iroq qilish',
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _callContactPhone(context, contact);
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.copy_rounded, color: AppTheme.primary, size: 18),
+                        tooltip: 'Nusxalash',
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: contact.phoneNumber));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('${contact.phoneNumber} nusxalandi! 📋'),
+                              duration: const Duration(seconds: 1),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+
               // BIO / ABOUT CARD
               Container(
                 width: double.infinity,
@@ -366,9 +556,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _buildProfileActionButton(
-                    icon: Icons.phone_rounded,
-                    label: "Qo'ng'iroq",
+                    icon: Icons.phone_in_talk_rounded,
+                    label: "Oddiy tel",
                     color: Colors.green,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _callContactPhone(context, contact);
+                    },
+                  ),
+                  _buildProfileActionButton(
+                    icon: Icons.headset_mic_rounded,
+                    label: "SupaChat",
+                    color: AppTheme.primary,
                     onTap: () {
                       Navigator.pop(ctx);
                       _startAudioCall(contact, conversation, authProvider.currentUser);
@@ -577,18 +776,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             tooltip: 'Video qo\'ng\'iroq',
             onPressed: () => _startVideoCall(contact, activeConv, authProvider.currentUser),
           ),
-          // Voice Call Icon -> Interactive audio call
+          // Voice / Phone Call Icon -> Options (Cellular or SupaChat VoIP)
           IconButton(
             icon: const Icon(Icons.phone_outlined),
-            tooltip: 'Ovozli qo\'ng\'iroq',
-            onPressed: () => _startAudioCall(contact, activeConv, authProvider.currentUser),
+            tooltip: 'Qo\'ng\'iroq qilish',
+            onPressed: () => _showCallOptions(context, contact, activeConv, authProvider.currentUser),
           ),
           // More Menu (3 dots)
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert_rounded),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             onSelected: (val) {
-              if (val == 'admin_panel') {
+              if (val == 'add_member') {
+                showDialog(
+                  context: context,
+                  builder: (_) => AddGroupMembersDialog(conversation: activeConv),
+                );
+              } else if (val == 'admin_panel') {
                 showDialog(
                   context: context,
                   builder: (_) => GroupAdminPanelDialog(conversation: activeConv),
@@ -610,6 +814,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               }
             },
             itemBuilder: (ctx) => [
+              if (activeConv.isGroup)
+                const PopupMenuItem(
+                  value: 'add_member',
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_add_rounded, size: 20, color: Colors.green),
+                      SizedBox(width: 10),
+                      Text('A\'zo qo\'shish ➕', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                    ],
+                  ),
+                ),
               if (activeConv.isGroup && (isGroupOwner || isGroupAdmin))
                 const PopupMenuItem(
                   value: 'admin_panel',

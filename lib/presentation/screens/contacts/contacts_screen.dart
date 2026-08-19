@@ -455,103 +455,271 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   void _showCreateGroupDialog(BuildContext context) {
     final groupNameController = TextEditingController();
+    final searchMemberController = TextEditingController();
     final chatProvider = context.read<ChatProvider>();
     final authProvider = context.read<AuthProvider>();
+    final currentUserId = authProvider.currentUser.id;
     final selectedMembers = <UserProfile>{};
+    List<UserProfile> searchResults = [];
+    bool isSearching = false;
 
-    final availableContacts = chatProvider.contacts;
+    final allPartners = chatProvider.getAllChatPartners(currentUserId);
 
     showDialog(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: const Text('Yangi guruh yaratish'),
-              content: SizedBox(
-                width: double.maxFinite,
+          builder: (dialogCtx, setDialogState) {
+            final isDark = Theme.of(dialogCtx).brightness == Brightness.dark;
+            final isSearchMode = searchMemberController.text.trim().isNotEmpty;
+            final displayList = isSearchMode ? searchResults : allPartners;
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              backgroundColor: isDark ? AppTheme.surfaceDark : Colors.white,
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                constraints: const BoxConstraints(maxWidth: 440, maxHeight: 600),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // TITLE
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.group_add_rounded, color: AppTheme.primary, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Yangi guruh yaratish',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // GROUP NAME INPUT
                     TextField(
                       controller: groupNameController,
-                      decoration: const InputDecoration(
-                        hintText: 'Guruh nomi (masalan, Marketing Sync)',
-                        prefixIcon: Icon(Icons.group_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'A\'zolarni tanlang:',
-                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (availableContacts.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(12.0),
-                        child: Text(
-                          'Hali kontaktlar yo\'q. Avval foydalanuvchilar bilan suhbat boshlang!',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                      decoration: InputDecoration(
+                        hintText: 'Guruh nomi (masalan: Dasturchilar)',
+                        prefixIcon: const Icon(Icons.group_outlined, size: 20),
+                        filled: true,
+                        fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
                         ),
-                      )
-                    else
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 180),
-                        child: ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: availableContacts.length,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // SEARCH MEMBER INPUT
+                    TextField(
+                      controller: searchMemberController,
+                      onChanged: (val) async {
+                        final clean = val.trim().replaceAll('@', '').toLowerCase();
+                        if (clean.isEmpty) {
+                          setDialogState(() {
+                            isSearching = false;
+                            searchResults = [];
+                          });
+                          return;
+                        }
+                        setDialogState(() {
+                          isSearching = true;
+                        });
+                        final res = await chatProvider.searchUsers(clean);
+                        setDialogState(() {
+                          searchResults = res.where((u) => u.id != currentUserId).toList();
+                          isSearching = false;
+                        });
+                      },
+                      decoration: InputDecoration(
+                        hintText: '@username yoki ism orqali izlash...',
+                        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                        suffixIcon: searchMemberController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear_rounded, size: 18),
+                                onPressed: () {
+                                  searchMemberController.clear();
+                                  setDialogState(() {
+                                    searchResults = [];
+                                    isSearching = false;
+                                  });
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // SELECTED MEMBERS CHIPS
+                    if (selectedMembers.isNotEmpty) ...[
+                      SizedBox(
+                        height: 36,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: selectedMembers.length,
+                          separatorBuilder: (c, i) => const SizedBox(width: 6),
                           itemBuilder: (c, idx) {
-                            final contact = availableContacts[idx];
-                            final isSelected = selectedMembers.contains(contact);
-                            return CheckboxListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(contact.fullName),
-                              subtitle: Text('@${contact.username}'),
-                              value: isSelected,
-                              onChanged: (val) {
+                            final u = selectedMembers.elementAt(idx);
+                            return Chip(
+                              avatar: CircleAvatar(
+                                radius: 12,
+                                child: Text(
+                                  u.fullName.isNotEmpty ? u.fullName[0].toUpperCase() : '?',
+                                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              label: Text(
+                                u.fullName,
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                              deleteIcon: const Icon(Icons.close_rounded, size: 14),
+                              onDeleted: () {
                                 setDialogState(() {
-                                  if (val == true) {
-                                    selectedMembers.add(contact);
-                                  } else {
-                                    selectedMembers.remove(contact);
-                                  }
+                                  selectedMembers.remove(u);
                                 });
                               },
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              backgroundColor: AppTheme.primary.withValues(alpha: 0.15),
+                              side: BorderSide.none,
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
                             );
                           },
                         ),
                       ),
+                      const SizedBox(height: 8),
+                    ],
+
+                    Text(
+                      isSearchMode
+                          ? 'Qidiruv natijalari (${displayList.length}):'
+                          : 'A\'zolarni tanlang (${displayList.length}):',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                    const SizedBox(height: 6),
+
+                    // MEMBERS LIST
+                    Expanded(
+                      child: isSearching
+                          ? const Center(child: CircularProgressIndicator())
+                          : displayList.isEmpty
+                              ? Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12.0),
+                                    child: Text(
+                                      isSearchMode
+                                          ? 'Foydalanuvchi topilmadi'
+                                          : 'Hozircha suhbatdoshlar yo\'q. Tepadan username orqali qidiring!',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    ),
+                                  ),
+                                )
+                              : ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: displayList.length,
+                                  separatorBuilder: (c, i) => const Divider(height: 6, thickness: 0.3),
+                                  itemBuilder: (c, idx) {
+                                    final contact = displayList[idx];
+                                    final isSelected = selectedMembers.any((m) => m.id == contact.id);
+
+                                    return CheckboxListTile(
+                                      dense: true,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                                      secondary: AvatarHelper.buildAvatarWidget(
+                                        avatarUrl: contact.avatarUrl,
+                                        name: contact.fullName,
+                                        radius: 18,
+                                      ),
+                                      title: Text(
+                                        contact.fullName,
+                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                      ),
+                                      subtitle: Text('@${contact.username}'),
+                                      value: isSelected,
+                                      activeColor: AppTheme.primary,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      onChanged: (val) {
+                                        setDialogState(() {
+                                          if (val == true) {
+                                            selectedMembers.add(contact);
+                                          } else {
+                                            selectedMembers.removeWhere((m) => m.id == contact.id);
+                                          }
+                                        });
+                                      },
+                                    );
+                                  },
+                                ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ACTION BUTTONS
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                          ),
+                          onPressed: () => Navigator.pop(dialogCtx),
+                          child: const Text('Bekor qilish'),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+                          ),
+                          onPressed: () {
+                            final name = groupNameController.text.trim();
+                            if (name.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Guruh nomini kiriting!')),
+                              );
+                              return;
+                            }
+                            chatProvider.createNewGroup(
+                              groupName: name,
+                              members: selectedMembers.toList(),
+                              creatorId: authProvider.currentUser.id,
+                            );
+                            Navigator.pop(dialogCtx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('"$name" guruhi yaratildi! 🎉'),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            );
+                          },
+                          child: const Text('Yaratish'),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Bekor qilish'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    final name = groupNameController.text.trim();
-                    if (name.isNotEmpty) {
-                      chatProvider.createNewGroup(
-                        groupName: name,
-                        members: selectedMembers.toList(),
-                        creatorId: authProvider.currentUser.id,
-                      );
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('"$name" guruhi yaratildi!')),
-                      );
-                    }
-                  },
-                  child: const Text('Yaratish'),
-                ),
-              ],
             );
           },
         );

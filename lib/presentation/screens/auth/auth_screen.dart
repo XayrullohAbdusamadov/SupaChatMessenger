@@ -18,6 +18,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _fullNameController = TextEditingController();
+  final _phoneController = TextEditingController(text: '+998 ');
   final _aboutController = TextEditingController(text: 'Hey there! I am using SupaChat.');
   final _passwordController = TextEditingController();
 
@@ -25,6 +26,7 @@ class _AuthScreenState extends State<AuthScreen> {
   void dispose() {
     _usernameController.dispose();
     _fullNameController.dispose();
+    _phoneController.dispose();
     _aboutController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -37,6 +39,7 @@ class _AuthScreenState extends State<AuthScreen> {
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
     final fullName = _fullNameController.text.trim();
+    final phone = _phoneController.text.trim();
     final about = _aboutController.text.trim();
 
     bool success = false;
@@ -46,6 +49,7 @@ class _AuthScreenState extends State<AuthScreen> {
       success = await auth.registerByUsername(
         username: username,
         fullName: fullName.isNotEmpty ? fullName : username,
+        phoneNumber: phone.isNotEmpty ? phone : null,
         about: about,
         password: password,
       );
@@ -293,6 +297,45 @@ class _AuthScreenState extends State<AuthScreen> {
                                   }
                                   if (val.trim().length < 3) {
                                     return 'Ismingiz kamida 3 ta belgidan iborat bo\'lsin';
+                                  }
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // PHONE NUMBER (REGISTRATION ONLY)
+                            Text(
+                              'Telefon raqam',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            TextFormField(
+                              controller: _phoneController,
+                              keyboardType: TextInputType.phone,
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.phone_rounded, color: AppTheme.primary, size: 20),
+                                hintText: '+998 90 123 45 67',
+                                filled: true,
+                                fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              ),
+                              validator: (val) {
+                                if (!_isLoginMode) {
+                                  if (val == null || val.trim().isEmpty || val.trim() == '+998') {
+                                    return 'Telefon raqamingizni kiriting';
+                                  }
+                                  final digits = val.replaceAll(RegExp(r'[^0-9]'), '');
+                                  if (digits.length < 9) {
+                                    return 'Telefon raqamni to\'liq kiriting (masalan: +998 90 123 45 67)';
                                   }
                                 }
                                 return null;

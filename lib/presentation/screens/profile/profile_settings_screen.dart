@@ -82,12 +82,34 @@ class ProfileSettingsScreen extends StatelessWidget {
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  '@${user.username}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '@${user.username}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDark ? AppTheme.textDarkSecondary : AppTheme.textLightSecondary,
+                      ),
+                    ),
+                    if (user.phoneNumber.isNotEmpty) ...[
+                      Text(
+                        ' • ',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isDark ? Colors.white24 : Colors.grey[400],
+                        ),
+                      ),
+                      Text(
+                        user.phoneNumber,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Container(
@@ -442,6 +464,7 @@ class ProfileSettingsScreen extends StatelessWidget {
     final auth = context.read<AuthProvider>();
     final nameCtrl = TextEditingController(text: auth.currentUser.fullName);
     final userCtrl = TextEditingController(text: auth.currentUser.username);
+    final phoneCtrl = TextEditingController(text: auth.currentUser.phoneNumber);
     final bioCtrl = TextEditingController(text: auth.currentUser.about);
     Uint8List? newImageBytes;
 
@@ -584,6 +607,29 @@ class ProfileSettingsScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
 
+                      // PHONE NUMBER INPUT
+                      const Text(
+                        'Telefon raqam',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.primary),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.phone_rounded, color: AppTheme.primary, size: 20),
+                          hintText: '+998 90 123 45 67',
+                          filled: true,
+                          fillColor: isDark ? AppTheme.surfaceDark : AppTheme.inputBgLight,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
                       // BIO STATUS INPUT
                       const Text(
                         'Status / Bio',
@@ -629,6 +675,7 @@ class ProfileSettingsScreen extends StatelessWidget {
                               await auth.updateProfile(
                                 fullName: nameCtrl.text.trim(),
                                 username: userCtrl.text.trim(),
+                                phoneNumber: phoneCtrl.text.trim(),
                                 about: bioCtrl.text.trim(),
                                 newAvatarBytes: newImageBytes,
                                 deleteExistingAvatar: isImageDeleted,

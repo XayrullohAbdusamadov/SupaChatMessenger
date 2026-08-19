@@ -99,6 +99,7 @@ class SupabaseService {
     String password, {
     required String username,
     required String fullName,
+    String? phoneNumber,
   }) async {
     if (!isInitialized) return null;
     try {
@@ -108,6 +109,7 @@ class SupabaseService {
         data: {
           'username': username.trim().toLowerCase(),
           'full_name': fullName.trim(),
+          'phone_number': phoneNumber,
         },
       );
     } catch (e) {
@@ -200,6 +202,8 @@ class SupabaseService {
         'full_name': profile.fullName.trim().isNotEmpty ? profile.fullName.trim() : profile.username.trim(),
         'avatar_url': profile.avatarUrl,
         'about': profile.about.isNotEmpty ? profile.about : 'Hey there! I am using SupaChat.',
+        'phone_number': profile.phoneNumber,
+        'role': profile.role,
         'is_online': profile.isOnline,
         'last_seen': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
@@ -364,6 +368,36 @@ class SupabaseService {
       return res != null;
     } catch (e) {
       debugPrint('Error checking isUserParticipant: $e');
+      return false;
+    }
+  }
+
+  Future<bool> addGroupMember(String chatId, String userId, {String role = 'member'}) async {
+    if (!isInitialized) return false;
+    try {
+      await _client!.from('chat_participants').upsert({
+        'chat_id': chatId,
+        'user_id': userId,
+        'role': role,
+      });
+      return true;
+    } catch (e) {
+      debugPrint('Error adding group participant in Supabase: $e');
+      return false;
+    }
+  }
+
+  Future<bool> removeGroupMember(String chatId, String userId) async {
+    if (!isInitialized) return false;
+    try {
+      await _client!
+          .from('chat_participants')
+          .delete()
+          .eq('chat_id', chatId)
+          .eq('user_id', userId);
+      return true;
+    } catch (e) {
+      debugPrint('Error removing group participant in Supabase: $e');
       return false;
     }
   }

@@ -80,6 +80,7 @@ class AuthProvider extends ChangeNotifier {
       final userAbout = prefs.getString('user_${savedUsername}_about') ?? savedAbout;
       final userAvatar = prefs.getString('user_${savedUsername}_avatar_url') ?? savedAvatar;
       final userName = prefs.getString('user_${savedUsername}_full_name') ?? savedName;
+      final userPhone = prefs.getString('user_${savedUsername}_phone_number') ?? prefs.getString('local_phone_number');
 
       final deterministicId = savedUserId ?? const Uuid().v5(Namespace.url.value, 'supachat:user:$savedUsername');
 
@@ -89,6 +90,7 @@ class AuthProvider extends ChangeNotifier {
         fullName: userName ?? savedUsername,
         about: userAbout ?? _currentUser.about,
         avatarUrl: userAvatar,
+        phoneNumber: userPhone,
       );
     }
 
@@ -190,6 +192,7 @@ class AuthProvider extends ChangeNotifier {
         final savedName = prefs.getString('user_${cleanUsername}_full_name');
         final savedAbout = prefs.getString('user_${cleanUsername}_about');
         final savedAvatar = prefs.getString('user_${cleanUsername}_avatar_url');
+        final savedPhone = prefs.getString('user_${cleanUsername}_phone_number');
 
         _currentUser = UserProfile(
           id: userId,
@@ -197,6 +200,7 @@ class AuthProvider extends ChangeNotifier {
           fullName: savedName ?? username.trim(),
           about: savedAbout ?? 'Hey there! I am using SupaChat.',
           avatarUrl: savedAvatar,
+          phoneNumber: savedPhone,
           isOnline: true,
         );
       }
@@ -228,6 +232,7 @@ class AuthProvider extends ChangeNotifier {
     required String fullName,
     required String about,
     required String password,
+    String? phoneNumber,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -255,6 +260,7 @@ class AuthProvider extends ChangeNotifier {
         username: cleanUsername,
         fullName: fullName.isNotEmpty ? fullName : cleanUsername,
         about: about.isNotEmpty ? about : 'Hey there! I am using SupaChat.',
+        phoneNumber: phoneNumber,
       );
 
       if (_isSupabaseConnected || _supabaseService.isInitialized) {
@@ -273,6 +279,7 @@ class AuthProvider extends ChangeNotifier {
           password,
           username: cleanUsername,
           fullName: fullName,
+          phoneNumber: phoneNumber,
         );
 
         // Always upsert profile directly into Supabase profiles table
@@ -295,6 +302,10 @@ class AuthProvider extends ChangeNotifier {
       await prefs.setString('local_about', _currentUser.about);
       await prefs.setString('user_${cleanUsername}_full_name', _currentUser.fullName);
       await prefs.setString('user_${cleanUsername}_about', _currentUser.about);
+      if (phoneNumber != null && phoneNumber.isNotEmpty) {
+        await prefs.setString('local_phone_number', phoneNumber);
+        await prefs.setString('user_${cleanUsername}_phone_number', phoneNumber);
+      }
 
       _isLoading = false;
       notifyListeners();
@@ -400,6 +411,7 @@ class AuthProvider extends ChangeNotifier {
     required String fullName,
     required String username,
     required String about,
+    String? phoneNumber,
     String? avatarUrl,
     Uint8List? newAvatarBytes,
     bool deleteExistingAvatar = false,
@@ -436,6 +448,7 @@ class AuthProvider extends ChangeNotifier {
       avatarUrl: finalAvatar,
       about: about,
       role: _currentUser.role,
+      phoneNumber: phoneNumber ?? _currentUser.phoneNumber,
       isOnline: _currentUser.isOnline,
       lastSeen: _currentUser.lastSeen,
     );
@@ -446,8 +459,10 @@ class AuthProvider extends ChangeNotifier {
     await prefs.setString('local_full_name', fullName);
     await prefs.setString('local_username', cleanUser);
     await prefs.setString('local_about', about);
+    await prefs.setString('local_phone_number', _currentUser.phoneNumber);
     await prefs.setString('user_${cleanUser}_full_name', fullName);
     await prefs.setString('user_${cleanUser}_about', about);
+    await prefs.setString('user_${cleanUser}_phone_number', _currentUser.phoneNumber);
     if (finalAvatar != null) {
       await prefs.setString('local_avatar_url', finalAvatar);
       await prefs.setString('user_${cleanUser}_avatar_url', finalAvatar);

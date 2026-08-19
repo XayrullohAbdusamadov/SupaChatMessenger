@@ -1140,6 +1140,49 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  List<UserProfile> getAllChatPartners(String currentUserId) {
+    final Map<String, UserProfile> users = {};
+    // Add existing contacts
+    for (final c in _contacts) {
+      if (c.id != currentUserId && c.id.isNotEmpty) {
+        users[c.id] = c;
+      }
+    }
+    // Add all 1-on-1 and group chat participants
+    for (final conv in _conversations) {
+      for (final p in conv.participants) {
+        if (p.id != currentUserId && p.id.isNotEmpty) {
+          users[p.id] = p;
+        }
+      }
+    }
+    return users.values.toList();
+  }
+
+  Future<void> addGroupMembers(String chatId, List<UserProfile> newMembers) async {
+    if (newMembers.isEmpty) return;
+    final idx = _conversations.indexWhere((c) => c.id == chatId);
+    if (idx != -1) {
+      final existingMap = {for (final p in _conversations[idx].participants) p.id: p};
+      for (final m in newMembers) {
+        existingMap[m.id] = m;
+      }
+      final updatedList = existingMap.values.toList();
+      _conversations[idx] = _conversations[idx].copyWith(participants: updatedList);
+      if (_activeChat?.id == chatId) {
+        _activeChat = _conversations[idx];
+      }
+      _saveConversations();
+      notifyListeners();
+
+      if (_supabaseService.isInitialized) {
+        for (final m in newMembers) {
+          await _supabaseService.addGroupMember(chatId, m.id);
+        }
+      }
+    }
+  }
+
   void removeGroupMember(String chatId, String userId) {
     final idx = _conversations.indexWhere((c) => c.id == chatId);
     if (idx != -1) {
@@ -1154,6 +1197,10 @@ class ChatProvider extends ChangeNotifier {
       }
       _saveConversations();
       notifyListeners();
+
+      if (_supabaseService.isInitialized) {
+        _supabaseService.removeGroupMember(chatId, userId);
+      }
     }
   }
 
