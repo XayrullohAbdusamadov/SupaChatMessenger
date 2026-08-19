@@ -58,7 +58,7 @@ class ChatProvider extends ChangeNotifier {
       String key = conv.id;
       if (!conv.isGroup && !conv.id.startsWith('saved_messages') && cleanMyUsername.isNotEmpty) {
         final other = conv.getOtherParticipant(_currentActiveUserId ?? '', currentUsername: cleanMyUsername);
-        if (other != null && other.username.isNotEmpty) {
+        if (other != null && other.username.isNotEmpty && other.username.trim().toLowerCase().replaceAll('@', '') != cleanMyUsername) {
           final targetU = other.username.trim().toLowerCase().replaceAll('@', '');
           key = 'direct_${ChatConversation.computeDirectChatId(cleanMyUsername, targetU)}';
         }

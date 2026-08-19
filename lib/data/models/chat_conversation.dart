@@ -99,14 +99,17 @@ class ChatConversation {
 
   UserProfile? getOtherParticipant(String? currentUserId, {String? currentUsername}) {
     if (isGroup || participants.isEmpty) return null;
+    final cleanMyId = (currentUserId ?? '').trim().toLowerCase();
+    final cleanMyUser = (currentUsername ?? '').trim().toLowerCase().replaceAll('@', '');
+
     final others = participants.where((p) {
-      if (currentUserId != null && currentUserId.isNotEmpty && p.id == currentUserId) return false;
-      if (currentUsername != null && currentUsername.isNotEmpty && p.username.toLowerCase() == currentUsername.toLowerCase()) return false;
+      if (cleanMyId.isNotEmpty && p.id.trim().toLowerCase() == cleanMyId) return false;
+      if (cleanMyUser.isNotEmpty && p.username.trim().toLowerCase().replaceAll('@', '') == cleanMyUser) return false;
       return true;
     }).toList();
 
     if (others.isNotEmpty) return others.first;
-    return participants.first;
+    return null;
   }
 
   factory ChatConversation.fromJson(
