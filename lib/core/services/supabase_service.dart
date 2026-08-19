@@ -805,21 +805,45 @@ class SupabaseService {
       }
 
       // 4. Batch fetch all profiles for all participants not yet in cache
-      final missingIds = allParticipantUserIds.where((id) => !_profileCache.containsKey(id) && !_profileCache.containsKey(id.toLowerCase())).toList();
+      final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+      final missingIds = allParticipantUserIds
+          .where((id) => !_profileCache.containsKey(id) && !_profileCache.containsKey(id.toLowerCase()))
+          .toList();
       if (missingIds.isNotEmpty) {
-        try {
-          final pRows = await _client!
-              .from('profiles')
-              .select()
-              .or('id.in.(${missingIds.join(",")}),username.in.(${missingIds.join(",")})');
-          for (final pr in pRows as List) {
-            final p = UserProfile.fromJson(pr);
-            _profileCache[p.id] = p;
-            _profileCache[p.username.toLowerCase()] = p;
+        // Split: valid UUIDs go to profiles.id filter; others treated as usernames
+        final validUuidIds = missingIds.where((id) => uuidRegex.hasMatch(id)).toList();
+        final usernameIds = missingIds.where((id) => !uuidRegex.hasMatch(id)).toList();
+
+        if (validUuidIds.isNotEmpty) {
+          try {
+            final pRows = await _client!
+                .from('profiles')
+                .select()
+                .inFilter('id', validUuidIds);
+            for (final pr in pRows as List) {
+              final p = UserProfile.fromJson(pr);
+              _profileCache[p.id] = p;
+              _profileCache[p.username.toLowerCase()] = p;
+            }
+          } catch (e) {
+            debugPrint('[fetchUserConversations] Batch UUID profile fetch error: $e');
+            for (final mid in validUuidIds) {
+              await fetchProfile(mid);
+            }
           }
-        } catch (_) {
-          for (final mid in missingIds) {
-            await fetchProfile(mid);
+        }
+
+        // Resolve non-UUID participant IDs (usernames) via username lookup
+        for (final nameId in usernameIds) {
+          final clean = nameId.toLowerCase().replaceAll('@', '').replaceAll('user-', '');
+          try {
+            final profile = await fetchProfileByUsername(clean);
+            if (profile != null) {
+              _profileCache[nameId] = profile;
+              _profileCache[clean] = profile;
+            }
+          } catch (e) {
+            debugPrint('[fetchUserConversations] Username resolve error for $nameId: $e');
           }
         }
       }
