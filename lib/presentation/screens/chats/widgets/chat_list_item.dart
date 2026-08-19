@@ -316,40 +316,74 @@ class _ChatListItemState extends State<ChatListItem>
     final count = widget.conversation.unreadCount;
     final label = count > 99 ? '99+' : '$count';
 
-    return ScaleTransition(
-      scale: _pulseAnimation,
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF1D4ED8).withValues(alpha: 0.45),
-              blurRadius: 8,
-              spreadRadius: 1,
-              offset: const Offset(0, 2),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF10B981), Color(0xFF059669)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-          ],
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: const TextStyle(
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF10B981).withValues(alpha: 0.35),
+                blurRadius: 6,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: const Text(
+            'YANGI',
+            style: TextStyle(
               color: Colors.white,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.3,
-              height: 1.1,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.6,
+              height: 1.0,
             ),
           ),
         ),
-      ),
+        const SizedBox(width: 6),
+        ScaleTransition(
+          scale: _pulseAnimation,
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF1D4ED8).withValues(alpha: 0.45),
+                  blurRadius: 8,
+                  spreadRadius: 1,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Center(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
+                  height: 1.1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

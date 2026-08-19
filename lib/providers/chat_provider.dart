@@ -1784,6 +1784,11 @@ class ChatProvider extends ChangeNotifier {
           continue;
         }
 
+        // Ignore empty 1-on-1 chats without any messages or unread count
+        if (!conv.isGroup && (conv.lastMessageText == null || conv.lastMessageText!.trim().isEmpty) && conv.unreadCount == 0) {
+          continue;
+        }
+
         final localIdx = _conversations.indexWhere((c) => c.id == conv.id);
         if (localIdx == -1) {
           // Check if direct conversation exists with same participant under old ID
