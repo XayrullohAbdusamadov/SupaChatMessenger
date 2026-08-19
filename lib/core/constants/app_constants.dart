@@ -5,7 +5,7 @@ class AppConstants {
   
   // Supabase Project Credentials (Auto-configured)
   static const String defaultSupabaseUrl = 'https://xyxqaojnvyzkmiinquyy.supabase.co';
-  static const String defaultSupabaseAnonKey = 'sb_publishable_1xuddfTjYgEaSNRk12Sovw_7G4eZ_6A';
+  static const String defaultSupabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5eHFhb2pudnl6a21paW5xdXl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3NDU0NzgsImV4cCI6MjEwMjMyMTQ3OH0.jCsd8GwxXycmu-eH7EI_yiyzrEWrEGLbvefmRTbmfeg';
 
   // Storage Buckets
   static const String avatarsBucket = 'avatars';
