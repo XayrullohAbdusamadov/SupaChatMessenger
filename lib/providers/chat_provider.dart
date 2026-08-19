@@ -666,6 +666,9 @@ class ChatProvider extends ChangeNotifier {
     if (index != -1) {
       _conversations[index] = _conversations[index].copyWith(unreadCount: 0);
       _saveConversations();
+    } else {
+      _conversations.insert(0, conversation.copyWith(unreadCount: 0));
+      _saveConversations();
     }
 
     await _loadMessagesFromLocalCache(conversation.id);
@@ -1434,7 +1437,17 @@ class ChatProvider extends ChangeNotifier {
 
   void _updateLastMessage(ChatMessage msg) {
     final chatId = msg.chatId;
-    final idx = _conversations.indexWhere((c) => c.id == chatId);
+    int idx = _conversations.indexWhere(
+      (c) => c.id == chatId ||
+             (_activeChat != null && c.id == _activeChat!.id) ||
+             (!c.isGroup && _activeChat != null && c.participants.any((p) => _activeChat!.participants.any((ap) => ap.username.toLowerCase() == p.username.toLowerCase()))),
+    );
+
+    if (idx == -1 && _activeChat != null) {
+      _conversations.insert(0, _activeChat!);
+      idx = 0;
+    }
+
     if (idx != -1) {
       String preview = msg.content;
       if (msg.messageType == MessageType.image) preview = '📷 Rasm';
