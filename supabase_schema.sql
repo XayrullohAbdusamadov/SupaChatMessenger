@@ -251,10 +251,22 @@ BEGIN
   VALUES (NEW.chat_id, NEW.sender_id, 'member', 0)
   ON CONFLICT (chat_id, user_id) DO NOTHING;
 
-  -- 3. Qabul qiluvchida o'qilmagan xabarlar sonini oshirish
+  -- 3. [YANGI] Agar receiver_id mavjud bo'lsa, qabul qiluvchini ham ishtirokchi sifatida kafolatlash
+  --    Bu getOrCreateDirectConversation muvaffaqiyatsiz bo'lganda ham xavfsizlik to'ri bo'lib xizmat qiladi
+  IF NEW.receiver_id IS NOT NULL THEN
+    INSERT INTO public.chat_participants (chat_id, user_id, role, unread_count)
+    VALUES (NEW.chat_id, NEW.receiver_id, 'member', 1)
+    ON CONFLICT (chat_id, user_id) DO UPDATE
+      SET unread_count = public.chat_participants.unread_count + 1;
+  END IF;
+
+  -- 4. Qolgan barcha ishtirokchilar (guruh chat)da o'qilmagan xabarlar sonini oshirish
+  --    receiver_id allaqachon yuqorida qayta hisobga olingan, ikki marta hisoblash oldini olish
   UPDATE public.chat_participants
   SET unread_count = unread_count + 1
-  WHERE chat_id = NEW.chat_id AND user_id != NEW.sender_id;
+  WHERE chat_id = NEW.chat_id
+    AND user_id != NEW.sender_id
+    AND (NEW.receiver_id IS NULL OR user_id != NEW.receiver_id);
 
   RETURN NEW;
 END;
@@ -265,6 +277,7 @@ CREATE TRIGGER trg_new_message_conversation
   AFTER INSERT ON public.messages
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_new_message_conversation();
+
 
 -- 12. DUBLIKAT SUHBATLARNI BIRLASHTIRISH VA TOZALASH SKRIPTI (Database Cleanup Helper)
 CREATE OR REPLACE FUNCTION public.cleanup_and_merge_duplicate_conversations()

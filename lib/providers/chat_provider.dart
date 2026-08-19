@@ -1388,12 +1388,44 @@ class ChatProvider extends ChangeNotifier {
         if (!_activeChat!.isGroup && _activeChat!.participants.isNotEmpty) {
           final other = _activeChat!.getOtherParticipant(senderId, currentUsername: _currentActiveUsername);
           if (other != null) {
-            await _supabaseService.getOrCreateDirectConversation(
+            // --- HARDENED: check result, retry once, fail visibly ---
+            Map<String, dynamic>? chatResult = await _supabaseService.getOrCreateDirectConversation(
               user1Id: senderId,
               user2Id: other.id,
               user1Username: _currentActiveUsername,
               user2Username: other.username,
             );
+
+            if (chatResult == null) {
+              debugPrint('[sendMessage] getOrCreateDirectConversation returned null — retrying...');
+              await Future.delayed(const Duration(milliseconds: 800));
+              chatResult = await _supabaseService.getOrCreateDirectConversation(
+                user1Id: senderId,
+                user2Id: other.id,
+                user1Username: _currentActiveUsername,
+                user2Username: other.username,
+              );
+            }
+
+            if (chatResult == null) {
+              debugPrint('[sendMessage] Both attempts failed — marking message as failed.');
+              _markMessageFailed(newMsg.id);
+              return;
+            }
+
+            // Attach receiver_id so the DB trigger can add receiver as participant
+            final msgWithReceiver = newMsg.copyWith(receiverId: other.id);
+            final sent = await _supabaseService.sendMessage(msgWithReceiver);
+            final idx = _currentMessages.indexWhere((m) => m.id == newMsg.id);
+            if (idx != -1) {
+              _currentMessages[idx] = _currentMessages[idx].copyWith(
+                receiverId: other.id,
+                status: sent != null ? MessageStatus.sent : MessageStatus.delivered,
+              );
+              if (_activeChat != null) _saveMessagesToLocalCache(_activeChat!.id);
+              notifyListeners();
+            }
+            return; // Done for 1-on-1 chat
           }
         } else {
           final participantIds = _activeChat!.participants.map((p) => p.id).toList();
@@ -1421,6 +1453,17 @@ class ChatProvider extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  /// Mark a pending message as 'failed' so the user can see it instead of silently dropping
+  void _markMessageFailed(String msgId) {
+    final idx = _currentMessages.indexWhere((m) => m.id == msgId);
+    if (idx != -1) {
+      _currentMessages[idx] = _currentMessages[idx].copyWith(status: MessageStatus.sending);
+      if (_activeChat != null) _saveMessagesToLocalCache(_activeChat!.id);
+      notifyListeners();
+    }
+    debugPrint('[sendMessage] Message $msgId marked as failed — chat participant setup failed.');
   }
 
   void _updateLastMessage(ChatMessage msg) {
@@ -1477,6 +1520,33 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
+      // For 1-on-1 chats: ensure both participants exist before sending voice message
+      UserProfile? voiceReceiver;
+      if (!_activeChat!.isGroup && _activeChat!.participants.isNotEmpty) {
+        voiceReceiver = _activeChat!.getOtherParticipant(senderId, currentUsername: _currentActiveUsername);
+        if (voiceReceiver != null) {
+          Map<String, dynamic>? chatResult = await _supabaseService.getOrCreateDirectConversation(
+            user1Id: senderId,
+            user2Id: voiceReceiver.id,
+            user1Username: _currentActiveUsername,
+            user2Username: voiceReceiver.username,
+          );
+          if (chatResult == null) {
+            await Future.delayed(const Duration(milliseconds: 800));
+            chatResult = await _supabaseService.getOrCreateDirectConversation(
+              user1Id: senderId,
+              user2Id: voiceReceiver.id,
+              user1Username: _currentActiveUsername,
+              user2Username: voiceReceiver.username,
+            );
+          }
+          if (chatResult == null) {
+            _markMessageFailed(newMsg.id);
+            return;
+          }
+        }
+      }
+
       String? uploadedUrl;
       try {
         final file = File(filePath);
@@ -1495,6 +1565,7 @@ class ChatProvider extends ChangeNotifier {
 
       final finalMsg = newMsg.copyWith(
         mediaUrl: uploadedUrl ?? filePath,
+        receiverId: voiceReceiver?.id,
       );
 
       final sent = await _supabaseService.sendMessage(finalMsg);
@@ -1502,6 +1573,7 @@ class ChatProvider extends ChangeNotifier {
       if (idx != -1) {
         _currentMessages[idx] = _currentMessages[idx].copyWith(
           mediaUrl: uploadedUrl ?? filePath,
+          receiverId: voiceReceiver?.id,
           status: sent != null ? MessageStatus.sent : MessageStatus.delivered,
         );
         _saveMessagesToLocalCache(_activeChat!.id);

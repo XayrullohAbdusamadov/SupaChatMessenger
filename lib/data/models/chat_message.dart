@@ -17,6 +17,7 @@ class ChatMessage {
   final String id;
   final String chatId;
   final String senderId;
+  final String? receiverId;  // For 1-on-1 chats: the other participant's UUID
   final String? replyToId;
   final ChatMessage? replyToMessage;
   final MessageType messageType;
@@ -35,6 +36,7 @@ class ChatMessage {
     required this.id,
     required this.chatId,
     required this.senderId,
+    this.receiverId,
     this.replyToId,
     this.replyToMessage,
     this.messageType = MessageType.text,
@@ -105,6 +107,7 @@ class ChatMessage {
       id: json['id'] as String,
       chatId: json['chat_id'] as String,
       senderId: json['sender_id'] as String,
+      receiverId: json['receiver_id'] as String?,
       replyToId: json['reply_to_id'] as String?,
       replyToMessage: replyMsg,
       messageType: type,
@@ -128,6 +131,7 @@ class ChatMessage {
       'id': id,
       'chat_id': chatId,
       'sender_id': senderId,
+      'receiver_id': receiverId,
       'reply_to_id': replyToId,
       'reply_to_message': replyToMessage?.toJson(),
       'message_type': messageType.name,
@@ -149,6 +153,7 @@ class ChatMessage {
       'id': id,
       'chat_id': chatId,
       'sender_id': senderId,
+      if (receiverId != null) 'receiver_id': receiverId,
       'reply_to_id': replyToId,
       'message_type': messageType.name,
       'content': content,
@@ -168,6 +173,7 @@ class ChatMessage {
     String? id,
     String? chatId,
     String? senderId,
+    String? receiverId,
     String? replyToId,
     ChatMessage? replyToMessage,
     MessageType? messageType,
@@ -186,6 +192,7 @@ class ChatMessage {
       id: id ?? this.id,
       chatId: chatId ?? this.chatId,
       senderId: senderId ?? this.senderId,
+      receiverId: receiverId ?? this.receiverId,
       replyToId: replyToId ?? this.replyToId,
       replyToMessage: replyToMessage ?? this.replyToMessage,
       messageType: messageType ?? this.messageType,
