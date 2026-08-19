@@ -390,13 +390,13 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> searchUsers(String query, {String? currentUsername}) async {
+  Future<List<UserProfile>> searchUsers(String query, {String? currentUsername}) async {
     final cleanQuery = query.trim().replaceAll('@', '').toLowerCase();
     if (cleanQuery.isEmpty) {
       _sqlSearchResults = [];
       _isSearchingUsers = false;
       notifyListeners();
-      return;
+      return [];
     }
 
     _isSearchingUsers = true;
@@ -492,6 +492,7 @@ class ChatProvider extends ChangeNotifier {
     _sqlSearchResults = results;
     _isSearchingUsers = false;
     notifyListeners();
+    return _sqlSearchResults;
   }
 
   // SAVED MESSAGES (Self-messaging / Note to Self)
@@ -756,6 +757,7 @@ class ChatProvider extends ChangeNotifier {
   }
 
   String? get currentActiveUserId => _currentActiveUserId;
+  String? get currentActiveUsername => _currentActiveUsername;
 
   RealtimeChannel? _globalRealtimeSubscription;
   String? _currentListeningUserId;

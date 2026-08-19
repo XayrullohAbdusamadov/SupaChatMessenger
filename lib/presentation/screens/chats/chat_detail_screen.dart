@@ -110,9 +110,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  Future<void> _callContactPhone(BuildContext context, UserProfile contact) async {
+  Future<void> _callContactPhone(UserProfile contact) async {
     final raw = contact.phoneNumber.replaceAll(RegExp(r'[^0-9+]'), '');
     if (raw.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Telefon raqam topilmadi')),
       );
@@ -126,6 +127,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Qo\'ng\'iroq ilovasini ochib bo\'lmadi: $e')),
       );
@@ -197,7 +199,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _callContactPhone(context, contact);
+                  _callContactPhone(contact);
                 },
               ),
               const SizedBox(height: 10),
@@ -495,7 +497,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         tooltip: 'Oddiy qo\'ng\'iroq qilish',
                         onPressed: () {
                           Navigator.pop(ctx);
-                          _callContactPhone(context, contact);
+                          _callContactPhone(contact);
                         },
                       ),
                       IconButton(
@@ -561,7 +563,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     color: Colors.green,
                     onTap: () {
                       Navigator.pop(ctx);
-                      _callContactPhone(context, contact);
+                      _callContactPhone(contact);
                     },
                   ),
                   _buildProfileActionButton(
