@@ -153,7 +153,20 @@ class ChatProvider extends ChangeNotifier {
     _currentActiveUserId = userId;
 
     final prefs = await SharedPreferences.getInstance();
-    _currentActiveUsername = username ?? prefs.getString('local_username');
+    String? resolvedUsername = username?.trim().isNotEmpty == true
+        ? username
+        : prefs.getString('local_username');
+
+    // If username is still empty, resolve it from Supabase before realtime starts
+    if ((resolvedUsername == null || resolvedUsername.isEmpty) && _supabaseService.isInitialized) {
+      final profile = await _supabaseService.fetchProfile(userId);
+      if (profile != null && profile.username.isNotEmpty) {
+        resolvedUsername = profile.username.trim().toLowerCase();
+        await prefs.setString('local_username', resolvedUsername);
+        debugPrint('[ChatProvider] Resolved username from Supabase: $resolvedUsername');
+      }
+    }
+    _currentActiveUsername = resolvedUsername;
 
     await _loadSavedConversations(userId);
     await _loadRecentSearches(userId);
@@ -166,6 +179,7 @@ class ChatProvider extends ChangeNotifier {
     _viewedStoryIds.clear();
     _viewedStoryIds.addAll(savedViewed);
 
+    // Only start realtime after username is confirmed
     initGlobalRealtime(userId);
     _startPeriodicSync();
     notifyListeners();
@@ -824,6 +838,17 @@ class ChatProvider extends ChangeNotifier {
     final currentUserId = _currentActiveUserId;
     if (currentUserId == null || currentUserId.isEmpty) return;
 
+    // If username not yet loaded, try to resolve it now
+    if ((_currentActiveUsername == null || _currentActiveUsername!.isEmpty) && _supabaseService.isInitialized) {
+      final profile = await _supabaseService.fetchProfile(currentUserId);
+      if (profile != null && profile.username.isNotEmpty) {
+        _currentActiveUsername = profile.username.trim().toLowerCase();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('local_username', _currentActiveUsername!);
+        debugPrint('[ChatProvider] Lazily resolved username: $_currentActiveUsername');
+      }
+    }
+
     final myUsername = _currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
     final senderClean = newMsg.senderId.replaceAll('user-', '').trim().toLowerCase().replaceAll('@', '');
 
@@ -851,11 +876,25 @@ class ChatProvider extends ChangeNotifier {
         ? ChatConversation.computeDirectChatId(myUsername, senderUsername)
         : null;
 
-    final bool isForMe = (expectedDirectId != null && newMsg.chatId == expectedDirectId) ||
+    bool isForMe = (expectedDirectId != null && newMsg.chatId == expectedDirectId) ||
         _conversations.any((c) => c.id == newMsg.chatId);
 
-    // If this message is not for the current user, ignore
+    // Fallback: ask Supabase server if current user is actually a participant
+    if (!isForMe && _supabaseService.isInitialized) {
+      isForMe = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId);
+      if (isForMe) {
+        debugPrint('[ChatProvider] isForMe resolved via server participant check for chat: ${newMsg.chatId}');
+      }
+    }
+
+    // If still not for the current user, drop with debug log
     if (!isForMe) {
+      debugPrint(
+        '[ChatProvider] Dropped message ${newMsg.id}: chatId=${newMsg.chatId}, '
+        'myUsername=$myUsername, sender=$senderUsername, '
+        'expectedDirectId=$expectedDirectId, '
+        'inLocalConversations=${_conversations.any((c) => c.id == newMsg.chatId)}',
+      );
       return;
     }
 

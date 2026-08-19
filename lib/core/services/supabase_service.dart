@@ -376,22 +376,49 @@ class SupabaseService {
     if (!isInitialized) return false;
     try {
       final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+      final validCreatedBy = uuidRegex.hasMatch(createdBy) ? createdBy : null;
 
       await _client!.from('chats').upsert({
         'id': chatId,
         'is_group': isGroup,
         'group_name': groupName,
         'group_avatar': groupAvatar,
-        'created_by': uuidRegex.hasMatch(createdBy) ? createdBy : null,
+        'created_by': validCreatedBy,
       });
 
-      final validUids = participantIds.where((u) => uuidRegex.hasMatch(u.trim())).toSet();
-      for (final uid in validUids) {
+      // Resolve any non-UUID participant IDs via username lookup before inserting
+      final resolvedUids = <String>{};
+      for (final uid in participantIds) {
+        final trimmed = uid.trim();
+        if (trimmed.isEmpty) continue;
+        if (uuidRegex.hasMatch(trimmed)) {
+          resolvedUids.add(trimmed);
+        } else {
+          // Treat as username — look up real UUID
+          final cleanUsername = trimmed.toLowerCase().replaceAll('@', '').replaceAll('user-', '');
+          try {
+            final profile = await fetchProfileByUsername(cleanUsername);
+            if (profile != null) {
+              resolvedUids.add(profile.id);
+              debugPrint('[createOrEnsureChat] Resolved $trimmed -> ${profile.id}');
+            } else {
+              // Deterministic UUID fallback — never silently drop
+              final fallback = const Uuid().v5(Namespace.url.value, 'supachat:user:$cleanUsername');
+              resolvedUids.add(fallback);
+              debugPrint('[createOrEnsureChat] Fallback UUID for $trimmed -> $fallback');
+            }
+          } catch (e) {
+            debugPrint('[createOrEnsureChat] Could not resolve $trimmed: $e');
+          }
+        }
+      }
+
+      for (final uid in resolvedUids) {
         try {
           await _client!.from('chat_participants').upsert({
             'chat_id': chatId,
             'user_id': uid,
-            'role': uid == createdBy ? 'admin' : 'member',
+            'role': uid == (validCreatedBy ?? '') ? 'admin' : 'member',
           });
         } catch (e) {
           debugPrint('Error inserting chat participant $uid: $e');
