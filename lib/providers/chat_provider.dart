@@ -46,10 +46,60 @@ class ChatProvider extends ChangeNotifier {
   int get totalUnreadCount => _conversations.fold(0, (sum, c) => sum + c.unreadCount);
 
   List<ChatConversation> get conversations {
-    if (_searchQuery.isEmpty) {
-      return _conversations;
+    final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
+    final Map<String, ChatConversation> deduplicated = {};
+
+    for (final conv in _conversations) {
+      if (conv.id.contains('00000000') ||
+          conv.name.contains('SupaChat Developer') ||
+          conv.name.contains('SupaChat Assistant') ||
+          conv.name.contains('SupaChat Community') ||
+          conv.participants.any((p) => p.username == 'admin_dev' || p.username == 'supachat_bot')) {
+        continue;
+      }
+
+      String key = conv.id;
+      if (!conv.isGroup && !conv.id.startsWith('saved_messages') && cleanMyUsername.isNotEmpty) {
+        final other = conv.getOtherParticipant(_currentActiveUserId ?? '', currentUsername: cleanMyUsername);
+        if (other != null && other.username.isNotEmpty) {
+          final targetU = other.username.trim().toLowerCase().replaceAll('@', '');
+          key = 'direct_${ChatConversation.computeDirectChatId(cleanMyUsername, targetU)}';
+        }
+      }
+
+      if (deduplicated.containsKey(key)) {
+        final existing = deduplicated[key]!;
+        final latestAt = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageAt : existing.lastMessageAt;
+        final latestText = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageText : existing.lastMessageText;
+        final latestType = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageType : existing.lastMessageType;
+        final latestSender = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageSenderId : existing.lastMessageSenderId;
+
+        final mergedParticipants = List<UserProfile>.from(existing.participants);
+        for (final p in conv.participants) {
+          if (!mergedParticipants.any((mp) => mp.username.toLowerCase() == p.username.toLowerCase())) {
+            mergedParticipants.add(p);
+          }
+        }
+
+        deduplicated[key] = existing.copyWith(
+          participants: mergedParticipants,
+          lastMessageAt: latestAt,
+          lastMessageText: latestText,
+          lastMessageType: latestType,
+          lastMessageSenderId: latestSender,
+          unreadCount: existing.unreadCount + conv.unreadCount,
+        );
+      } else {
+        deduplicated[key] = conv;
+      }
     }
-    return _conversations.where((c) => c.name.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+
+    final list = deduplicated.values.toList()..sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+    if (_searchQuery.isEmpty) {
+      return list;
+    }
+    final q = _searchQuery.toLowerCase().replaceAll('@', '');
+    return list.where((c) => c.name.toLowerCase().contains(q)).toList();
   }
 
   // Active contacts derived from actual conversation participants
@@ -215,6 +265,14 @@ class ChatProvider extends ChangeNotifier {
       final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
 
       for (final conv in loaded) {
+        if (conv.id.contains('00000000') ||
+            conv.name.contains('SupaChat Developer') ||
+            conv.name.contains('SupaChat Assistant') ||
+            conv.name.contains('SupaChat Community') ||
+            conv.participants.any((p) => p.username == 'admin_dev' || p.username == 'supachat_bot')) {
+          continue;
+        }
+
         String key = conv.id;
         if (!conv.isGroup && !conv.id.startsWith('saved_messages') && cleanMyUsername.isNotEmpty) {
           final other = conv.getOtherParticipant(userId, currentUsername: cleanMyUsername);
@@ -1643,6 +1701,14 @@ class ChatProvider extends ChangeNotifier {
         username: _currentActiveUsername,
       );
       for (final conv in remote) {
+        if (conv.id.contains('00000000') ||
+            conv.name.contains('SupaChat Developer') ||
+            conv.name.contains('SupaChat Assistant') ||
+            conv.name.contains('SupaChat Community') ||
+            conv.participants.any((p) => p.username == 'admin_dev' || p.username == 'supachat_bot')) {
+          continue;
+        }
+
         final localIdx = _conversations.indexWhere((c) => c.id == conv.id);
         if (localIdx == -1) {
           // Check if direct conversation exists with same participant under old ID
@@ -1653,11 +1719,9 @@ class ChatProvider extends ChangeNotifier {
           if (participantIdx != -1) {
             _conversations[participantIdx] = conv;
           } else {
-            // New conversation not yet in local list — add it
             _conversations.insert(0, conv);
           }
         } else {
-          // Update participants if remote has richer data
           final existing = _conversations[localIdx];
           if (existing.participants.isEmpty && conv.participants.isNotEmpty) {
             _conversations[localIdx] = existing.copyWith(participants: conv.participants);
