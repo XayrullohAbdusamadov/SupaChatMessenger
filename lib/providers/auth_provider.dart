@@ -126,7 +126,8 @@ class AuthProvider extends ChangeNotifier {
         final profile = await _supabaseService.fetchProfileByUsername(cleanUsername);
         if (profile != null) {
           final email = '$cleanUsername@supachat.local';
-          await _supabaseService.signInWithEmail(email, password);
+          final authRes = await _supabaseService.signInWithEmail(email, password);
+          final realId = authRes?.user?.id ?? profile.id;
 
           // Check local password if stored
           if (db.containsKey(cleanUsername) && db[cleanUsername] != password) {
@@ -136,7 +137,7 @@ class AuthProvider extends ChangeNotifier {
             return false;
           }
 
-          _currentUser = profile.copyWith(isOnline: true);
+          _currentUser = profile.copyWith(id: realId, isOnline: true);
           await _supabaseService.updateProfile(_currentUser);
         } else {
           // Check local database if not found in Supabase
@@ -274,13 +275,17 @@ class AuthProvider extends ChangeNotifier {
         }
 
         final email = '$cleanUsername@supachat.local';
-        await _supabaseService.signUpWithEmail(
+        final authRes = await _supabaseService.signUpWithEmail(
           email,
           password,
           username: cleanUsername,
           fullName: fullName,
           phoneNumber: phoneNumber,
         );
+
+        if (authRes?.user != null) {
+          _currentUser = _currentUser.copyWith(id: authRes!.user!.id);
+        }
 
         // Always upsert profile directly into Supabase profiles table
         await _supabaseService.updateProfile(_currentUser);

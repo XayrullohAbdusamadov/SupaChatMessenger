@@ -40,7 +40,7 @@ class ChatProvider extends ChangeNotifier {
   bool _isVoicePlaying = false;
   double _voiceProgress = 0.0;
 
-  int get totalUnreadCount => _conversations.fold(0, (sum, c) => sum + c.unreadCount);
+  int get totalUnreadCount => conversations.fold(0, (sum, c) => sum + c.unreadCount);
 
   List<ChatConversation> get conversations {
     final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
@@ -67,7 +67,9 @@ class ChatProvider extends ChangeNotifier {
       if (deduplicated.containsKey(key)) {
         final existing = deduplicated[key]!;
         final latestAt = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageAt : existing.lastMessageAt;
-        final latestText = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageText : existing.lastMessageText;
+        final latestText = (conv.lastMessageText != null && conv.lastMessageText!.isNotEmpty)
+            ? conv.lastMessageText
+            : existing.lastMessageText;
         final latestType = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageType : existing.lastMessageType;
         final latestSender = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageSenderId : existing.lastMessageSenderId;
 
@@ -96,7 +98,10 @@ class ChatProvider extends ChangeNotifier {
       return list;
     }
     final q = _searchQuery.toLowerCase().replaceAll('@', '');
-    return list.where((c) => c.name.toLowerCase().contains(q)).toList();
+    return list.where((c) {
+      final name = c.getDisplayName(_currentActiveUserId, currentUsername: cleanMyUsername).toLowerCase();
+      return name.contains(q) || c.participants.any((p) => p.username.toLowerCase().contains(q) || p.fullName.toLowerCase().contains(q));
+    }).toList();
   }
 
   // Active contacts derived from actual conversation participants
@@ -1784,8 +1789,8 @@ class ChatProvider extends ChangeNotifier {
           continue;
         }
 
-        // Ignore empty 1-on-1 chats without any messages or unread count
-        if (!conv.isGroup && (conv.lastMessageText == null || conv.lastMessageText!.trim().isEmpty) && conv.unreadCount == 0) {
+        // Ignore empty 1-on-1 chats ONLY if unreadCount is 0 AND has no messages AND no sender
+        if (!conv.isGroup && conv.unreadCount == 0 && (conv.lastMessageText == null || conv.lastMessageText!.trim().isEmpty) && conv.lastMessageSenderId == null) {
           continue;
         }
 
