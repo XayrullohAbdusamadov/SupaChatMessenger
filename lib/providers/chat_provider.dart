@@ -1003,6 +1003,9 @@ class ChatProvider extends ChangeNotifier {
           notifyListeners();
         }
       },
+      onChatUpdated: () async {
+        await syncConversationsFromSupabase();
+      },
     );
   }
 

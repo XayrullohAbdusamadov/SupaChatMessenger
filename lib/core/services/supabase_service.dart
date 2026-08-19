@@ -606,10 +606,11 @@ class SupabaseService {
     return channel;
   }
 
-  // GLOBAL REALTIME MESSAGE LISTENER
+  // GLOBAL REALTIME MESSAGE & CONVERSATION LISTENER
   RealtimeChannel? subscribeToAllMessages({
     required Function(ChatMessage message) onMessageReceived,
     Function(ChatMessage message)? onMessageUpdated,
+    Function()? onChatUpdated,
   }) {
     if (!isInitialized) return null;
 
@@ -640,6 +641,26 @@ class SupabaseService {
             debugPrint('[Realtime Global] Error decoding realtime postgres message: $e');
           }
         }
+      },
+    );
+
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.all,
+      schema: 'public',
+      table: 'chats',
+      callback: (payload) {
+        debugPrint('[Realtime Global] Received postgres_changes on chats table');
+        onChatUpdated?.call();
+      },
+    );
+
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.all,
+      schema: 'public',
+      table: 'chat_participants',
+      callback: (payload) {
+        debugPrint('[Realtime Global] Received postgres_changes on chat_participants table');
+        onChatUpdated?.call();
       },
     );
 
