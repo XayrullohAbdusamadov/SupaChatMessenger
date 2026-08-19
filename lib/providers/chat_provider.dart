@@ -11,7 +11,6 @@ import '../core/services/supabase_service.dart';
 import '../data/models/chat_conversation.dart';
 import '../data/models/chat_message.dart';
 import '../data/models/user_profile.dart';
-import '../data/models/user_story.dart';
 
 class ChatProvider extends ChangeNotifier {
   final SupabaseService _supabaseService = SupabaseService.instance;
@@ -20,13 +19,11 @@ class ChatProvider extends ChangeNotifier {
   List<ChatConversation> _conversations = [];
   final List<UserProfile> _contacts = [];
   List<ChatMessage> _currentMessages = [];
-  final List<UserStory> _stories = [];
   List<UserProfile> _recentSearches = [];
   List<UserProfile> _sqlSearchResults = [];
   bool _isSearchingUsers = false;
 
   final Set<String> _blockedUserIds = {};
-  final Set<String> _viewedStoryIds = {};
   ChatConversation? _activeChat;
   ChatMessage? _replyingToMessage;
   ChatMessage? _editingMessage;
@@ -125,13 +122,11 @@ class ChatProvider extends ChangeNotifier {
   }
 
   List<ChatMessage> get currentMessages => _currentMessages;
-  List<UserStory> get stories => _stories;
   List<UserProfile> get recentSearches => _recentSearches;
   List<UserProfile> get sqlSearchResults => _sqlSearchResults;
   bool get isSearchingUsers => _isSearchingUsers;
 
   Set<String> get blockedUserIds => _blockedUserIds;
-  Set<String> get viewedStoryIds => _viewedStoryIds;
   ChatConversation? get activeChat => _activeChat;
   ChatMessage? get replyingToMessage => _replyingToMessage;
   ChatMessage? get editingMessage => _editingMessage;
@@ -174,10 +169,6 @@ class ChatProvider extends ChangeNotifier {
     final savedBlocked = prefs.getStringList('blocked_user_ids_$userId') ?? [];
     _blockedUserIds.clear();
     _blockedUserIds.addAll(savedBlocked);
-
-    final savedViewed = prefs.getStringList('viewed_story_ids_$userId') ?? [];
-    _viewedStoryIds.clear();
-    _viewedStoryIds.addAll(savedViewed);
 
     // Only start realtime after username is confirmed
     initGlobalRealtime(userId);
@@ -608,54 +599,7 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // STORIES SYSTEM
-  void addStory(UserStory story) {
-    _stories.insert(0, story);
-    notifyListeners();
-  }
 
-  void deleteStory(String storyId) {
-    _stories.removeWhere((s) => s.id == storyId);
-    notifyListeners();
-  }
-
-  List<UserStory> getStoriesForUser(String userId) {
-    return _stories.where((s) => s.userId == userId).toList();
-  }
-
-  bool isStoryViewed(String storyId) => _viewedStoryIds.contains(storyId);
-
-  Future<void> markStoryAsViewed(String storyId) async {
-    if (!_viewedStoryIds.contains(storyId)) {
-      _viewedStoryIds.add(storyId);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList('viewed_story_ids', _viewedStoryIds.toList());
-      notifyListeners();
-    }
-  }
-
-  // REPLY TO STORY INTO DIRECT CHAT
-  Future<void> replyToStory({
-    required UserStory story,
-    required String replyText,
-    required String currentUserId,
-  }) async {
-    final contact = UserProfile(
-      id: story.userId,
-      username: story.userName.toLowerCase().replaceAll(' ', '_'),
-      fullName: story.userName,
-      avatarUrl: story.userAvatar,
-    );
-
-    final chat = startDirectChat(contact);
-    openChat(chat, currentUserId);
-
-    await sendMessage(
-      senderId: currentUserId,
-      content: '📸 Storyga javob: $replyText',
-      type: MessageType.text,
-    );
-  }
 
   // AUDIO PLAYER
   void _initAudioPlayer() {

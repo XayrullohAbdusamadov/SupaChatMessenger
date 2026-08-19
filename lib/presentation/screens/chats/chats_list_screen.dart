@@ -5,7 +5,6 @@ import '../../../core/utils/avatar_helper.dart';
 import '../../../data/models/user_profile.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/chat_provider.dart';
-import 'widgets/story_avatar_bar.dart';
 import 'widgets/chat_list_item.dart';
 import 'chat_detail_screen.dart';
 
@@ -123,21 +122,6 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
           slivers: [
-            // STORIES / ACTIVE CONTACTS CAROUSEL
-            if (!_isSearching)
-              SliverToBoxAdapter(
-                child: StoryAvatarBar(
-                  currentUser: currentUser,
-                  activeContacts: chatProvider.contacts,
-                  onContactTap: (contact) => _openChatWithUser(context, contact, currentUser.id),
-                ),
-              ),
-
-            if (!_isSearching)
-              const SliverToBoxAdapter(
-                child: Divider(height: 1, thickness: 0.5),
-              ),
-
             // SEARCH MODE
             if (_isSearching) ...[
               // IF SEARCH QUERY IS EMPTY: SHOW RECENT SEARCHES HISTORY WITH DELETE BUTTONS
