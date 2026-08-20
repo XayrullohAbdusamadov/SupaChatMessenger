@@ -4,6 +4,7 @@ import '../../../../core/utils/avatar_helper.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../data/models/chat_conversation.dart';
 import '../../../../data/models/chat_message.dart';
+import '../../../../data/models/user_profile.dart';
 
 class ChatListItem extends StatefulWidget {
   final ChatConversation conversation;
@@ -455,6 +456,30 @@ class _ChatListItemState extends State<ChatListItem>
       }
     }
 
+    // Resolve sender display name for incoming messages
+    String? senderDisplayName;
+    if (!isMine && senderId != null && widget.conversation.participants.isNotEmpty) {
+      final cleanSender = senderId.replaceAll('user-', '').toLowerCase();
+
+      // Try to find sender profile in participants list
+      final List<UserProfile> matched = widget.conversation.participants.where(
+        (p) =>
+            p.id.toLowerCase() == senderId.toLowerCase() ||
+            p.username.toLowerCase() == cleanSender ||
+            p.username.toLowerCase().replaceAll('@', '') == cleanSender.replaceAll('@', ''),
+      ).toList();
+
+      if (matched.isNotEmpty) {
+        final senderProfile = matched.first;
+        senderDisplayName = senderProfile.fullName.isNotEmpty
+            ? senderProfile.fullName.split(' ').first // First name only (like Telegram)
+            : senderProfile.username;
+      } else {
+        // Fallback: use cleaned sender id
+        senderDisplayName = cleanSender.isNotEmpty ? cleanSender : null;
+      }
+    }
+
     final preview = _resolvePreview();
 
     // Text style based on read / unread status
@@ -506,7 +531,7 @@ class _ChatListItemState extends State<ChatListItem>
       );
     }
 
-    // Other person's message
+    // Other person's message — show sender name like Telegram
     return Row(
       children: [
         if (hasUnread) ...[
@@ -529,16 +554,43 @@ class _ChatListItemState extends State<ChatListItem>
           ),
         ],
         Expanded(
-          child: Text(
-            preview,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: textWeight,
-              color: textColor,
-            ),
-          ),
+          child: senderDisplayName != null
+              ? RichText(
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '$senderDisplayName: ',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isDark
+                              ? const Color(0xFF94A3B8)
+                              : const Color(0xFF475569),
+                        ),
+                      ),
+                      TextSpan(
+                        text: preview,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: textWeight,
+                          color: textColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : Text(
+                  preview,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: textWeight,
+                    color: textColor,
+                  ),
+                ),
         ),
       ],
     );
