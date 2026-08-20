@@ -803,6 +803,142 @@ class SupabaseService {
     return channel;
   }
 
+  /// Fetch the full details of a single chat — used when the user is notified via
+  /// [subscribeToMyNewChats] that they've been added to a new conversation.
+  Future<ChatConversation?> fetchChatDetails(
+    String chatId, {
+    String? currentUserId,
+    String? currentUsername,
+  }) async {
+    if (!isInitialized || chatId.isEmpty) return null;
+    try {
+      final chatRow = await _client!
+          .from('chats')
+          .select()
+          .eq('id', chatId)
+          .maybeSingle();
+      if (chatRow == null) return null;
+
+      final partRows = await _client!
+          .from('chat_participants')
+          .select('user_id')
+          .eq('chat_id', chatId);
+
+      final uids = (partRows as List).map((r) => r['user_id'] as String).toList();
+
+      final List<UserProfile> participants = [];
+      final seenUsernames = <String>{};
+      for (final uid in uids) {
+        final profile = _profileCache[uid] ??
+            _profileCache[uid.toLowerCase()] ??
+            await fetchProfile(uid);
+        if (profile != null &&
+            !seenUsernames.contains(profile.username.toLowerCase())) {
+          seenUsernames.add(profile.username.toLowerCase());
+          participants.add(profile);
+        }
+      }
+
+      final isGroup = chatRow['is_group'] as bool? ?? false;
+      String name = chatRow['group_name'] as String? ?? 'Chat';
+      String? avatar = chatRow['group_avatar'] as String?;
+
+      if (!isGroup && participants.isNotEmpty && currentUserId != null) {
+        try {
+          final other = participants.firstWhere(
+            (p) =>
+                p.id != currentUserId &&
+                (currentUsername == null ||
+                    p.username.toLowerCase() !=
+                        currentUsername.trim().toLowerCase().replaceAll('@', '')),
+            orElse: () => participants.first,
+          );
+          name = other.fullName.isNotEmpty ? other.fullName : other.username;
+          avatar = other.avatarUrl ?? avatar;
+        } catch (_) {}
+      }
+
+      final lastText = chatRow['last_message_text'] as String?;
+      final lastTypeStr = chatRow['last_message_type'] as String?;
+
+      return ChatConversation(
+        id: chatId,
+        isGroup: isGroup,
+        name: name,
+        avatarUrl: avatar,
+        createdBy: chatRow['created_by'] as String?,
+        adminIds: (chatRow['admin_ids'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [],
+        blockedMemberIds: (chatRow['blocked_member_ids'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [],
+        participants: participants,
+        lastMessageText: lastText,
+        lastMessageType: lastTypeStr != null
+            ? MessageType.values.firstWhere(
+                (e) => e.name == lastTypeStr,
+                orElse: () => MessageType.text,
+              )
+            : null,
+        lastMessageSenderId: chatRow['last_message_sender_id'] as String?,
+        lastMessageAt: chatRow['last_message_at'] != null
+            ? DateTime.tryParse(chatRow['last_message_at'].toString()) ??
+                DateTime.now()
+            : DateTime.now(),
+        unreadCount: 0,
+      );
+    } catch (e) {
+      debugPrint('[fetchChatDetails] Error fetching chat $chatId: $e');
+      return null;
+    }
+  }
+
+  /// Subscribe to INSERT events on [chat_participants] filtered to [userId].
+  /// This fires the moment the current user is added as a participant to any chat —
+  /// including brand-new conversations initiated by someone else. This is the primary
+  /// mechanism by which the receiver discovers a new conversation in real time.
+  RealtimeChannel? subscribeToMyNewChats({
+    required String userId,
+    required Function(String chatId) onAddedToChat,
+  }) {
+    if (!isInitialized || userId.isEmpty) return null;
+
+    final channel = _client!.channel(
+      'private:my_chats:$userId',
+      opts: const RealtimeChannelConfig(self: false),
+    );
+
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'chat_participants',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'user_id',
+        value: userId,
+      ),
+      callback: (payload) {
+        final newRecord = payload.newRecord;
+        if (newRecord.isNotEmpty) {
+          final chatId = newRecord['chat_id'] as String?;
+          if (chatId != null && chatId.isNotEmpty) {
+            debugPrint('[Realtime] Added to new chat: $chatId (user: $userId)');
+            onAddedToChat(chatId);
+          }
+        }
+      },
+    );
+
+    channel.subscribe((status, [error]) {
+      debugPrint('[Realtime] My-chats channel [$userId] status: $status${error != null ? ", error: $error" : ""}');
+    });
+
+    return channel;
+  }
+
   /// Fetch all conversations for a user from Supabase (via chat_participants table)
   Future<List<ChatConversation>> fetchUserConversations(String userId, {String? username}) async {
     if (!isInitialized) return [];

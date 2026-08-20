@@ -30,6 +30,7 @@ class ChatProvider extends ChangeNotifier {
   String _searchQuery = '';
   final bool _isLoading = false;
   RealtimeChannel? _realtimeSubscription;
+  RealtimeChannel? _myChatsSubscription;
   StreamSubscription<List<ChatMessage>>? _activeChatStreamSubscription;
   StreamSubscription<List<ChatMessage>>? _globalStreamSubscription;
   Timer? _periodicSyncTimer;
@@ -253,6 +254,8 @@ class ChatProvider extends ChangeNotifier {
     _globalRealtimeSubscription = null;
     _realtimeSubscription?.unsubscribe();
     _realtimeSubscription = null;
+    _myChatsSubscription?.unsubscribe();
+    _myChatsSubscription = null;
     _audioPlayer?.stop();
     SoundService.instance.stopVoicePlayback();
     _isVoicePlaying = false;
@@ -968,12 +971,14 @@ class ChatProvider extends ChangeNotifier {
   }
 
   void initGlobalRealtime(String currentUserId) {
-    if (_currentListeningUserId == currentUserId && _globalStreamSubscription != null) {
+    if (_currentListeningUserId == currentUserId &&
+        _globalStreamSubscription != null &&
+        _myChatsSubscription != null) {
       return;
     }
     _currentListeningUserId = currentUserId;
 
-    // 1. Primary: Rock-solid Supabase Realtime Stream
+    // 1. Primary: Rock-solid Supabase Realtime Stream (for message delivery inside open chats)
     _globalStreamSubscription?.cancel();
     _globalStreamSubscription = _supabaseService.getGlobalMessagesStream().listen(
       (messages) {
@@ -986,7 +991,7 @@ class ChatProvider extends ChangeNotifier {
       },
     );
 
-    // 2. Secondary: Postgres Changes & Broadcast Channel
+    // 2. Secondary: Postgres Changes & Broadcast Channel (message edits, chat metadata updates)
     _globalRealtimeSubscription?.unsubscribe();
     _globalRealtimeSubscription = _supabaseService.subscribeToAllMessages(
       onMessageReceived: (newMsg) async {
@@ -1004,6 +1009,40 @@ class ChatProvider extends ChangeNotifier {
       },
       onChatUpdated: () async {
         await syncConversationsFromSupabase();
+      },
+    );
+
+    // 3. User-scoped chat_participants subscription — the PRIMARY mechanism for
+    //    discovering brand-new conversations. Fires the instant the current user
+    //    is added as a participant to any chat (including first-time messages from
+    //    strangers). Does NOT depend on polling or message-text availability.
+    _myChatsSubscription?.unsubscribe();
+    _myChatsSubscription = _supabaseService.subscribeToMyNewChats(
+      userId: currentUserId,
+      onAddedToChat: (chatId) async {
+        // Skip chats we already track locally
+        if (_conversations.any((c) => c.id == chatId)) return;
+
+        // Brief delay so the DB trigger can finish writing last_message_text / unread_count
+        // before we fetch — keeps the snapshot consistent.
+        await Future.delayed(const Duration(milliseconds: 400));
+
+        final conv = await _supabaseService.fetchChatDetails(
+          chatId,
+          currentUserId: _currentActiveUserId,
+          currentUsername: _currentActiveUsername,
+        );
+
+        if (conv == null) return;
+
+        // Double-check: may have been added by processIncomingMessage in the meantime
+        if (_conversations.any((c) => c.id == conv.id)) return;
+
+        _conversations.insert(0, conv);
+        _conversations.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+        await _saveConversations();
+        notifyListeners();
+        debugPrint('[ChatProvider] New chat discovered via participant subscription: ${conv.id}');
       },
     );
   }
@@ -1802,11 +1841,6 @@ class ChatProvider extends ChangeNotifier {
           continue;
         }
 
-        // Ignore empty 1-on-1 chats ONLY if unreadCount is 0 AND has no messages AND no sender
-        if (!conv.isGroup && conv.unreadCount == 0 && (conv.lastMessageText == null || conv.lastMessageText!.trim().isEmpty) && conv.lastMessageSenderId == null) {
-          continue;
-        }
-
         final localIdx = _conversations.indexWhere((c) => c.id == conv.id);
         if (localIdx == -1) {
           // Check if direct conversation exists with same participant under old ID
@@ -1843,6 +1877,7 @@ class ChatProvider extends ChangeNotifier {
     _periodicSyncTimer?.cancel();
     _realtimeSubscription?.unsubscribe();
     _globalRealtimeSubscription?.unsubscribe();
+    _myChatsSubscription?.unsubscribe();
     _audioPlayer?.dispose();
     super.dispose();
   }
