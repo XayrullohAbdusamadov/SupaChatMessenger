@@ -235,6 +235,36 @@ class SupabaseService {
     }
   }
 
+  Future<List<UserProfile>> fetchAllProfiles({String? excludeUserId, String? excludeUsername}) async {
+    if (!isInitialized) return [];
+    try {
+      final response = await _client!
+          .from('profiles')
+          .select()
+          .order('full_name', ascending: true)
+          .limit(100);
+
+      final cleanExcludeUser = excludeUsername?.trim().toLowerCase().replaceAll('@', '');
+      final list = (response as List).map((j) => UserProfile.fromJson(j)).where((p) {
+        if (p.username.isEmpty) return false;
+        final pUser = p.username.trim().toLowerCase().replaceAll('@', '');
+        if (pUser == 'admin_dev' || pUser == 'supachat_bot' || p.id.contains('00000000')) return false;
+        if (excludeUserId != null && p.id == excludeUserId) return false;
+        if (cleanExcludeUser != null && cleanExcludeUser.isNotEmpty && pUser == cleanExcludeUser) return false;
+        return true;
+      }).toList();
+
+      for (final p in list) {
+        _profileCache[p.id] = p;
+        _profileCache[p.username.toLowerCase()] = p;
+      }
+      return list;
+    } catch (e) {
+      debugPrint('Error fetching all profiles: $e');
+      return [];
+    }
+  }
+
   Future<List<UserProfile>> searchUsers(String query) async {
     if (!isInitialized) return [];
     final clean = query.trim().replaceAll('@', '').toLowerCase();
@@ -300,25 +330,6 @@ class SupabaseService {
   }) async {
     if (!isInitialized) return null;
     try {
-      // 1. Try calling the PostgreSQL RPC function
-      final response = await _client!.rpc(
-        'get_or_create_conversation',
-        params: {
-          'p_user1_id': user1Id,
-          'p_user2_id': user2Id,
-        },
-      );
-      if (response != null) {
-        final map = Map<String, dynamic>.from(response as Map);
-        debugPrint('[SupabaseService] get_or_create_conversation RPC returned chatId: ${map['id']}');
-        return map;
-      }
-    } catch (e) {
-      debugPrint('[SupabaseService] get_or_create_conversation RPC fallback: $e');
-    }
-
-    // 2. Client-side deterministic fallback
-    try {
       final u1 = (user1Username ?? user1Id).trim().toLowerCase().replaceAll('@', '').replaceAll('user-', '');
       final u2 = (user2Username ?? user2Id).trim().toLowerCase().replaceAll('@', '').replaceAll('user-', '');
       final chatId = ChatConversation.computeDirectChatId(u1, u2);
@@ -350,10 +361,10 @@ class SupabaseService {
         chatId: chatId,
         isGroup: false,
         createdBy: realUser1Id,
-        participantIds: [realUser1Id, realUser2Id],
+        participantIds: [realUser1Id, realUser2Id, u1, u2],
       );
 
-      debugPrint('[SupabaseService] Deterministic created chatId: $chatId for: $realUser1Id ($u1) & $realUser2Id ($u2)');
+      debugPrint('[SupabaseService] Canonical direct chatId ensured: $chatId for: $realUser1Id ($u1) & $realUser2Id ($u2)');
       return {
         'id': chatId,
         'is_group': false,

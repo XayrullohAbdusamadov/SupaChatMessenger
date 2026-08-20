@@ -124,4 +124,60 @@ void main() {
 
     expect(received, isTrue);
   });
+
+  test('Deduplication preserves valid lastMessageText over empty/null remote text', () {
+    final userA = UserProfile(id: 'u1', username: 'anvar', fullName: 'Anvar');
+    final userB = UserProfile(id: 'u2', username: 'xayrulloh', fullName: 'Xayrulloh');
+    final directId = ChatConversation.computeDirectChatId('anvar', 'xayrulloh');
+
+    final localConvWithMsg = ChatConversation(
+      id: directId,
+      name: 'Anvar',
+      participants: [userA, userB],
+      lastMessageText: 'Test message from script',
+      lastMessageSenderId: 'u1',
+      lastMessageAt: DateTime.now().subtract(const Duration(days: 1)),
+      unreadCount: 1,
+    );
+
+    final remoteEmptyConv = ChatConversation(
+      id: directId,
+      name: 'Anvar',
+      participants: [userA, userB],
+      lastMessageText: null,
+      lastMessageSenderId: null,
+      lastMessageAt: DateTime.now(),
+      unreadCount: 0,
+    );
+
+    final hasConvMsg = remoteEmptyConv.lastMessageText != null && remoteEmptyConv.lastMessageText!.trim().isNotEmpty;
+    final hasExistingMsg = localConvWithMsg.lastMessageText != null && localConvWithMsg.lastMessageText!.trim().isNotEmpty;
+
+    final String? latestText;
+    final String? latestSender;
+    final DateTime latestAt;
+
+    if (hasConvMsg && hasExistingMsg) {
+      final convIsNewer = remoteEmptyConv.lastMessageAt.isAfter(localConvWithMsg.lastMessageAt);
+      latestAt = convIsNewer ? remoteEmptyConv.lastMessageAt : localConvWithMsg.lastMessageAt;
+      latestText = convIsNewer ? remoteEmptyConv.lastMessageText : localConvWithMsg.lastMessageText;
+      latestSender = convIsNewer ? remoteEmptyConv.lastMessageSenderId : localConvWithMsg.lastMessageSenderId;
+    } else if (hasConvMsg) {
+      latestAt = remoteEmptyConv.lastMessageAt;
+      latestText = remoteEmptyConv.lastMessageText;
+      latestSender = remoteEmptyConv.lastMessageSenderId;
+    } else if (hasExistingMsg) {
+      latestAt = localConvWithMsg.lastMessageAt;
+      latestText = localConvWithMsg.lastMessageText;
+      latestSender = localConvWithMsg.lastMessageSenderId;
+    } else {
+      latestAt = remoteEmptyConv.lastMessageAt;
+      latestText = null;
+      latestSender = null;
+    }
+
+    expect(latestText, equals('Test message from script'));
+    expect(latestSender, equals('u1'));
+    expect(latestAt, equals(localConvWithMsg.lastMessageAt));
+  });
 }

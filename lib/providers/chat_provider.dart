@@ -61,18 +61,43 @@ class ChatProvider extends ChangeNotifier {
         final other = conv.getOtherParticipant(_currentActiveUserId ?? '', currentUsername: cleanMyUsername);
         if (other != null && other.username.isNotEmpty && other.username.trim().toLowerCase().replaceAll('@', '') != cleanMyUsername) {
           final targetU = other.username.trim().toLowerCase().replaceAll('@', '');
-          key = 'direct_${ChatConversation.computeDirectChatId(cleanMyUsername, targetU)}';
+          key = ChatConversation.computeDirectChatId(cleanMyUsername, targetU);
         }
       }
 
       if (deduplicated.containsKey(key)) {
         final existing = deduplicated[key]!;
-        final latestAt = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageAt : existing.lastMessageAt;
-        final latestText = (conv.lastMessageText != null && conv.lastMessageText!.isNotEmpty)
-            ? conv.lastMessageText
-            : existing.lastMessageText;
-        final latestType = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageType : existing.lastMessageType;
-        final latestSender = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageSenderId : existing.lastMessageSenderId;
+        final hasConvMsg = conv.lastMessageText != null && conv.lastMessageText!.trim().isNotEmpty;
+        final hasExistingMsg = existing.lastMessageText != null && existing.lastMessageText!.trim().isNotEmpty;
+
+        final DateTime latestAt;
+        final String? latestText;
+        final MessageType? latestType;
+        final String? latestSender;
+
+        if (hasConvMsg && hasExistingMsg) {
+          final convIsNewer = conv.lastMessageAt.isAfter(existing.lastMessageAt);
+          latestAt = convIsNewer ? conv.lastMessageAt : existing.lastMessageAt;
+          latestText = convIsNewer ? conv.lastMessageText : existing.lastMessageText;
+          latestType = convIsNewer ? conv.lastMessageType : existing.lastMessageType;
+          latestSender = convIsNewer ? conv.lastMessageSenderId : existing.lastMessageSenderId;
+        } else if (hasConvMsg) {
+          latestAt = conv.lastMessageAt;
+          latestText = conv.lastMessageText;
+          latestType = conv.lastMessageType;
+          latestSender = conv.lastMessageSenderId;
+        } else if (hasExistingMsg) {
+          latestAt = existing.lastMessageAt;
+          latestText = existing.lastMessageText;
+          latestType = existing.lastMessageType;
+          latestSender = existing.lastMessageSenderId;
+        } else {
+          final convIsNewer = conv.lastMessageAt.isAfter(existing.lastMessageAt);
+          latestAt = convIsNewer ? conv.lastMessageAt : existing.lastMessageAt;
+          latestText = null;
+          latestType = convIsNewer ? conv.lastMessageType : existing.lastMessageType;
+          latestSender = convIsNewer ? conv.lastMessageSenderId : existing.lastMessageSenderId;
+        }
 
         final mergedParticipants = List<UserProfile>.from(existing.participants);
         for (final p in conv.participants) {
@@ -82,6 +107,7 @@ class ChatProvider extends ChangeNotifier {
         }
 
         deduplicated[key] = existing.copyWith(
+          id: key,
           participants: mergedParticipants,
           lastMessageAt: latestAt,
           lastMessageText: latestText,
@@ -90,7 +116,7 @@ class ChatProvider extends ChangeNotifier {
           unreadCount: existing.unreadCount + conv.unreadCount,
         );
       } else {
-        deduplicated[key] = conv;
+        deduplicated[key] = conv.copyWith(id: key);
       }
     }
 
@@ -105,16 +131,25 @@ class ChatProvider extends ChangeNotifier {
     }).toList();
   }
 
-  // Active contacts derived from actual conversation participants
+  // Active contacts derived from registered users and conversation participants
   List<UserProfile> get contacts {
     final Map<String, UserProfile> userMap = {};
-    for (final conv in _conversations) {
-      for (final p in conv.participants) {
-        userMap[p.id] = p;
+    final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
+    final myId = _currentActiveUserId?.toLowerCase() ?? '';
+
+    for (final c in _contacts) {
+      final uName = c.username.trim().toLowerCase().replaceAll('@', '');
+      if (uName.isNotEmpty && uName != cleanMyUsername && c.id.toLowerCase() != myId) {
+        userMap[uName] = c;
       }
     }
-    for (final c in _contacts) {
-      userMap[c.id] = c;
+    for (final conv in _conversations) {
+      for (final p in conv.participants) {
+        final pName = p.username.trim().toLowerCase().replaceAll('@', '');
+        if (pName.isNotEmpty && pName != cleanMyUsername && p.id.toLowerCase() != myId) {
+          userMap.putIfAbsent(pName, () => p);
+        }
+      }
     }
     final list = userMap.values.toList();
     if (_searchQuery.isEmpty) {
@@ -125,6 +160,65 @@ class ChatProvider extends ChangeNotifier {
         u.fullName.toLowerCase().contains(q) ||
         u.username.toLowerCase().contains(q) ||
         (u.role != null && u.role!.toLowerCase().contains(q))).toList();
+  }
+
+  Future<void> fetchRegisteredContacts() async {
+    final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
+    final myId = _currentActiveUserId ?? '';
+    final Map<String, UserProfile> userMap = {};
+
+    // 1. Fetch from Supabase profiles
+    if (_supabaseService.isInitialized) {
+      try {
+        final remoteProfiles = await _supabaseService.fetchAllProfiles(
+          excludeUserId: myId,
+          excludeUsername: cleanMyUsername,
+        );
+        for (final p in remoteProfiles) {
+          final uName = p.username.trim().toLowerCase().replaceAll('@', '');
+          if (uName.isNotEmpty && uName != cleanMyUsername && p.id != myId) {
+            userMap[uName] = p;
+          }
+        }
+      } catch (e) {
+        debugPrint('[ChatProvider] Error fetching contacts from Supabase: $e');
+      }
+    }
+
+    // 2. Fetch from local registered users database
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final dbJson = prefs.getString('registered_users_db') ?? '{}';
+      final Map<String, dynamic> db = jsonDecode(dbJson);
+
+      for (final username in db.keys) {
+        final uLower = username.trim().toLowerCase().replaceAll('@', '');
+        if (uLower.isEmpty || uLower == cleanMyUsername) continue;
+        if (uLower == 'admin_dev' || uLower == 'supachat_bot') continue;
+
+        final name = prefs.getString('user_${uLower}_full_name') ?? prefs.getString('user_${username}_full_name') ?? username;
+        final about = prefs.getString('user_${uLower}_about') ?? prefs.getString('user_${username}_about') ?? 'Hey there! I am using SupaChat.';
+        final avatar = prefs.getString('user_${uLower}_avatar_url') ?? prefs.getString('user_${username}_avatar_url');
+        final phone = prefs.getString('user_${uLower}_phone_number') ?? prefs.getString('user_${username}_phone_number');
+
+        if (!userMap.containsKey(uLower)) {
+          userMap[uLower] = UserProfile(
+            id: 'user-$uLower',
+            username: uLower,
+            fullName: name,
+            about: about,
+            avatarUrl: avatar,
+            phoneNumber: phone,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[ChatProvider] Error fetching local contacts: $e');
+    }
+
+    _contacts.clear();
+    _contacts.addAll(userMap.values);
+    notifyListeners();
   }
 
   List<ChatMessage> get currentMessages => _currentMessages;
@@ -179,6 +273,7 @@ class ChatProvider extends ChangeNotifier {
     // Only start realtime after username is confirmed
     initGlobalRealtime(userId);
     _startPeriodicSync();
+    fetchRegisteredContacts();
     notifyListeners();
 
     // Sync from Supabase in background (non-blocking)
@@ -234,8 +329,9 @@ class ChatProvider extends ChangeNotifier {
         await processIncomingMessage(msg, isPeriodicSync: true);
       }
 
-      // Also sync conversation list from Supabase to pick up new chats
+      // Also sync conversation list and registered contacts from Supabase
       await syncConversationsFromSupabase();
+      fetchRegisteredContacts();
     } catch (_) {}
   }
 
@@ -303,10 +399,37 @@ class ChatProvider extends ChangeNotifier {
               mergedParticipants.add(p);
             }
           }
-          final latestAt = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageAt : existing.lastMessageAt;
-          final latestText = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageText : existing.lastMessageText;
-          final latestType = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageType : existing.lastMessageType;
-          final latestSender = conv.lastMessageAt.isAfter(existing.lastMessageAt) ? conv.lastMessageSenderId : existing.lastMessageSenderId;
+          final hasConvMsg = conv.lastMessageText != null && conv.lastMessageText!.trim().isNotEmpty;
+          final hasExistingMsg = existing.lastMessageText != null && existing.lastMessageText!.trim().isNotEmpty;
+
+          final DateTime latestAt;
+          final String? latestText;
+          final MessageType? latestType;
+          final String? latestSender;
+
+          if (hasConvMsg && hasExistingMsg) {
+            final convIsNewer = conv.lastMessageAt.isAfter(existing.lastMessageAt);
+            latestAt = convIsNewer ? conv.lastMessageAt : existing.lastMessageAt;
+            latestText = convIsNewer ? conv.lastMessageText : existing.lastMessageText;
+            latestType = convIsNewer ? conv.lastMessageType : existing.lastMessageType;
+            latestSender = convIsNewer ? conv.lastMessageSenderId : existing.lastMessageSenderId;
+          } else if (hasConvMsg) {
+            latestAt = conv.lastMessageAt;
+            latestText = conv.lastMessageText;
+            latestType = conv.lastMessageType;
+            latestSender = conv.lastMessageSenderId;
+          } else if (hasExistingMsg) {
+            latestAt = existing.lastMessageAt;
+            latestText = existing.lastMessageText;
+            latestType = existing.lastMessageType;
+            latestSender = existing.lastMessageSenderId;
+          } else {
+            final convIsNewer = conv.lastMessageAt.isAfter(existing.lastMessageAt);
+            latestAt = convIsNewer ? conv.lastMessageAt : existing.lastMessageAt;
+            latestText = null;
+            latestType = convIsNewer ? conv.lastMessageType : existing.lastMessageType;
+            latestSender = convIsNewer ? conv.lastMessageSenderId : existing.lastMessageSenderId;
+          }
 
           deduplicated[key] = existing.copyWith(
             id: key,
@@ -661,37 +784,46 @@ class ChatProvider extends ChangeNotifier {
 
   // Open Chat Screen
   void openChat(ChatConversation conversation, String currentUserId) async {
-    _activeChat = conversation;
+    final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
+
+    // Ensure canonical ID for 1-on-1 direct chat
+    String targetChatId = conversation.id;
+    if (!conversation.isGroup && !conversation.id.startsWith('saved_messages') && cleanMyUsername.isNotEmpty) {
+      final other = conversation.getOtherParticipant(currentUserId, currentUsername: cleanMyUsername);
+      if (other != null && other.username.isNotEmpty) {
+        targetChatId = ChatConversation.computeDirectChatId(cleanMyUsername, other.username);
+      }
+    }
+
+    final canonicalConv = conversation.copyWith(id: targetChatId);
+    _activeChat = canonicalConv;
     _replyingToMessage = null;
     _editingMessage = null;
 
-    final index = _conversations.indexWhere((c) => c.id == conversation.id);
+    final index = _conversations.indexWhere((c) => c.id == targetChatId || c.id == conversation.id);
     if (index != -1) {
-      _conversations[index] = _conversations[index].copyWith(unreadCount: 0);
+      _conversations[index] = _conversations[index].copyWith(id: targetChatId, unreadCount: 0);
       _saveConversations();
     } else {
-      _conversations.insert(0, conversation.copyWith(unreadCount: 0));
+      _conversations.insert(0, canonicalConv.copyWith(unreadCount: 0));
       _saveConversations();
     }
 
-    await _loadMessagesFromLocalCache(conversation.id);
+    await _loadMessagesFromLocalCache(targetChatId);
+    if (_currentMessages.isEmpty && targetChatId != conversation.id) {
+      await _loadMessagesFromLocalCache(conversation.id);
+    }
+
     if (_currentMessages.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('last_read_msg_${conversation.id}', _currentMessages.last.id);
+      await prefs.setString('last_read_msg_$targetChatId', _currentMessages.last.id);
+      if (targetChatId != conversation.id) {
+        await prefs.setString('last_read_msg_${conversation.id}', _currentMessages.last.id);
+      }
     }
     notifyListeners();
 
     if (_supabaseService.isInitialized) {
-      final participantIds = <String>{currentUserId};
-      for (final p in conversation.participants) {
-        participantIds.add(p.id);
-        if (p.username.isNotEmpty) {
-          final cleanU = p.username.trim().toLowerCase().replaceAll('@', '');
-          participantIds.add(cleanU);
-          participantIds.add(_uuid.v5(Namespace.url.value, 'supachat:user:$cleanU'));
-        }
-      }
-
       if (!conversation.isGroup && !conversation.id.startsWith('saved_messages') && conversation.participants.isNotEmpty) {
         final other = conversation.getOtherParticipant(currentUserId, currentUsername: _currentActiveUsername);
         if (other != null) {
@@ -703,8 +835,17 @@ class ChatProvider extends ChangeNotifier {
           );
         }
       } else {
+        final participantIds = <String>{currentUserId};
+        for (final p in conversation.participants) {
+          participantIds.add(p.id);
+          if (p.username.isNotEmpty) {
+            final cleanU = p.username.trim().toLowerCase().replaceAll('@', '');
+            participantIds.add(cleanU);
+            participantIds.add(_uuid.v5(Namespace.url.value, 'supachat:user:$cleanU'));
+          }
+        }
         await _supabaseService.createOrEnsureChat(
-          chatId: conversation.id,
+          chatId: targetChatId,
           isGroup: conversation.isGroup,
           groupName: conversation.name,
           groupAvatar: conversation.avatarUrl,
@@ -713,11 +854,17 @@ class ChatProvider extends ChangeNotifier {
         );
       }
 
-      final fetched = await _supabaseService.fetchMessages(conversation.id);
+      final fetched = await _supabaseService.fetchMessages(targetChatId);
       if (fetched.isNotEmpty) {
         _mergeFetchedMessages(fetched);
       }
-      _subscribeToRealtime(conversation.id);
+      if (targetChatId != conversation.id) {
+        final fetchedOld = await _supabaseService.fetchMessages(conversation.id);
+        if (fetchedOld.isNotEmpty) {
+          _mergeFetchedMessages(fetchedOld);
+        }
+      }
+      _subscribeToRealtime(targetChatId);
     }
   }
 
@@ -831,24 +978,38 @@ class ChatProvider extends ChangeNotifier {
         ? ChatConversation.computeDirectChatId(myUsername, senderUsername)
         : null;
 
-    // In a 1-on-1 messenger, any message sent by another user is for us!
-    bool isForMe = true;
+    bool isForMe = false;
 
-    // Only filter out if it's a group chat where current user is not a participant
-    if (_supabaseService.isInitialized) {
+    // 1. Direct 1-on-1 chat with me (by deterministic canonical chat ID)
+    if (expectedDirectId != null && newMsg.chatId == expectedDirectId) {
+      isForMe = true;
+    }
+
+    // 2. Explicit receiverId matching current user
+    if (!isForMe && newMsg.receiverId != null && newMsg.receiverId!.isNotEmpty) {
+      final recClean = newMsg.receiverId!.replaceAll('user-', '').trim().toLowerCase().replaceAll('@', '');
+      if (newMsg.receiverId == currentUserId || (myUsername.isNotEmpty && recClean == myUsername)) {
+        isForMe = true;
+      } else if (_supabaseService.isInitialized) {
+        final myProfile = await _supabaseService.fetchProfile(currentUserId);
+        if (myProfile != null && (newMsg.receiverId == myProfile.id || newMsg.receiverId == myProfile.username)) {
+          isForMe = true;
+        }
+      }
+    }
+
+    // 3. Group chat or participant check in Supabase
+    if (!isForMe && _supabaseService.isInitialized) {
       try {
-        final chatRow = await _supabaseService.getChatById(newMsg.chatId);
-        if (chatRow != null && chatRow['is_group'] == true) {
-          final isPart = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId, username: myUsername);
-          if (!isPart) {
-            isForMe = false;
-          }
+        final isPart = await _supabaseService.isUserParticipant(newMsg.chatId, currentUserId, username: myUsername);
+        if (isPart) {
+          isForMe = true;
         }
       } catch (_) {}
     }
 
     if (!isForMe) {
-      debugPrint('[ChatProvider] Dropped group message ${newMsg.id}: not a participant');
+      debugPrint('[ChatProvider] Dropped message ${newMsg.id} (chatId: ${newMsg.chatId}): not intended for user $myUsername ($currentUserId)');
       return;
     }
 
@@ -1832,6 +1993,8 @@ class ChatProvider extends ChangeNotifier {
         _currentActiveUserId!,
         username: _currentActiveUsername,
       );
+      final cleanMyUsername = _currentActiveUsername?.trim().toLowerCase().replaceAll('@', '') ?? '';
+
       for (final conv in remote) {
         if (conv.id.contains('00000000') ||
             conv.name.contains('SupaChat Developer') ||
@@ -1841,23 +2004,68 @@ class ChatProvider extends ChangeNotifier {
           continue;
         }
 
-        final localIdx = _conversations.indexWhere((c) => c.id == conv.id);
-        if (localIdx == -1) {
-          // Check if direct conversation exists with same participant under old ID
-          final participantIdx = !conv.isGroup
-              ? _conversations.indexWhere((c) => !c.isGroup && c.participants.any((p) => conv.participants.any((cp) => cp.username.toLowerCase() == p.username.toLowerCase())))
-              : -1;
+        // Canonical ID for 1-on-1 direct chats
+        String targetConvId = conv.id;
+        if (!conv.isGroup && !conv.id.startsWith('saved_messages') && cleanMyUsername.isNotEmpty) {
+          final other = conv.getOtherParticipant(_currentActiveUserId ?? '', currentUsername: cleanMyUsername);
+          if (other != null && other.username.isNotEmpty) {
+            targetConvId = ChatConversation.computeDirectChatId(cleanMyUsername, other.username);
+          }
+        }
 
-          if (participantIdx != -1) {
-            _conversations[participantIdx] = conv;
-          } else {
-            _conversations.insert(0, conv);
+        final canonicalConv = conv.copyWith(id: targetConvId);
+
+        final localIdx = _conversations.indexWhere((c) => c.id == canonicalConv.id || c.id == conv.id);
+        final participantIdx = (!canonicalConv.isGroup && localIdx == -1)
+            ? _conversations.indexWhere((c) => !c.isGroup && c.participants.any((p) => canonicalConv.participants.any((cp) => cp.username.toLowerCase() == p.username.toLowerCase())))
+            : -1;
+
+        final targetIdx = localIdx != -1 ? localIdx : participantIdx;
+
+        if (targetIdx != -1) {
+          final existing = _conversations[targetIdx];
+          final mergedParticipants = List<UserProfile>.from(existing.participants);
+          for (final p in canonicalConv.participants) {
+            if (!mergedParticipants.any((mp) => mp.username.toLowerCase() == p.username.toLowerCase())) {
+              mergedParticipants.add(p);
+            }
           }
+
+          final remoteHasMsg = canonicalConv.lastMessageText != null && canonicalConv.lastMessageText!.trim().isNotEmpty;
+          final existingHasMsg = existing.lastMessageText != null && existing.lastMessageText!.trim().isNotEmpty;
+
+          DateTime latestAt = existing.lastMessageAt;
+          String? latestText = existing.lastMessageText;
+          MessageType? latestType = existing.lastMessageType;
+          String? latestSender = existing.lastMessageSenderId;
+
+          if (remoteHasMsg && existingHasMsg) {
+            if (canonicalConv.lastMessageAt.isAfter(existing.lastMessageAt)) {
+              latestAt = canonicalConv.lastMessageAt;
+              latestText = canonicalConv.lastMessageText;
+              latestType = canonicalConv.lastMessageType;
+              latestSender = canonicalConv.lastMessageSenderId;
+            }
+          } else if (remoteHasMsg) {
+            latestAt = canonicalConv.lastMessageAt;
+            latestText = canonicalConv.lastMessageText;
+            latestType = canonicalConv.lastMessageType;
+            latestSender = canonicalConv.lastMessageSenderId;
+          }
+
+          _conversations[targetIdx] = existing.copyWith(
+            id: targetConvId,
+            participants: mergedParticipants,
+            name: existing.isGroup ? existing.name : (canonicalConv.name.isNotEmpty ? canonicalConv.name : existing.name),
+            avatarUrl: existing.isGroup ? existing.avatarUrl : (canonicalConv.avatarUrl ?? existing.avatarUrl),
+            lastMessageAt: latestAt,
+            lastMessageText: latestText,
+            lastMessageType: latestType,
+            lastMessageSenderId: latestSender,
+            unreadCount: canonicalConv.unreadCount > 0 ? canonicalConv.unreadCount : existing.unreadCount,
+          );
         } else {
-          final existing = _conversations[localIdx];
-          if (existing.participants.isEmpty && conv.participants.isNotEmpty) {
-            _conversations[localIdx] = existing.copyWith(participants: conv.participants);
-          }
+          _conversations.insert(0, canonicalConv);
         }
       }
       if (remote.isNotEmpty) {

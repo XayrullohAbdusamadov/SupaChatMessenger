@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
     id TEXT PRIMARY KEY,
     chat_id TEXT NOT NULL,
     sender_id TEXT NOT NULL,
+    receiver_id TEXT,
     reply_to_id TEXT,
     message_type VARCHAR(20) DEFAULT 'text',
     content TEXT,
@@ -88,6 +89,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS receiver_id TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS reply_to_id TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS voice_duration INT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_size BIGINT;
@@ -130,6 +132,7 @@ CREATE TABLE IF NOT EXISTS public.blocked_users (
 -- 9. INDEXLAR (Tezkor yuklash va qidiruv uchun)
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON public.messages(chat_id);
 CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON public.messages(sender_id);
+CREATE INDEX IF NOT EXISTS idx_messages_receiver_id ON public.messages(receiver_id);
 CREATE INDEX IF NOT EXISTS idx_messages_reply_to_id ON public.messages(reply_to_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON public.messages(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_participants_user_id ON public.chat_participants(user_id);

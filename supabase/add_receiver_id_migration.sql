@@ -1,4 +1,4 @@
-﻿-- ==============================================================================
+-- ==============================================================================
 -- SUPACHAT: receiver_id MIGRATION
 -- ==============================================================================
 -- MUHIM: Ushbu faylni Supabase SQL Editor'da 2 BOSQICHDA ishga tushiring:
@@ -9,7 +9,9 @@
 -- ==================== BOSQICH 1 ====================
 -- messages jadvaliga receiver_id ustunini qo'shish
 ALTER TABLE public.messages
-  ADD COLUMN IF NOT EXISTS receiver_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS receiver_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_messages_receiver_id ON public.messages(receiver_id);
 -- ==================== END BOSQICH 1 ================
 
 
